@@ -17,6 +17,9 @@ npm install
 # (optional) configure a local database for presets and snapshots
 echo "DATABASE_URL=\"file:./prisma/dev.db\"" > .env
 
+# make sure the SQLite folder exists and push the schema (creates the DB file)
+npx prisma db push --skip-generate
+
 # generate the Prisma client if you change the schema
 npm run prisma:generate
 
@@ -28,6 +31,11 @@ npm run dev
 ```
 
 The app starts on http://localhost:3000. Hot reload is enabled by default.
+
+Troubleshooting:
+
+- If you see `Unable to open the database file`, ensure the `prisma` directory exists and that `DATABASE_URL` points to a writable path. Running `npx prisma db push --skip-generate` after setting `.env` will create `prisma/dev.db` for you.
+- If the Prisma CLI cannot be downloaded (403 or similar), set `PRISMA_FORCE_MOCK=1` before `npm run prisma:generate` to use the offline mock client.
 
 ## Production build & deploy
 
