@@ -1,4 +1,5 @@
-import { recipes, RecipeDefinition, RecipeIngredient } from './recipes';
+import { recipes, recipesById, RecipeDefinition, RecipeIngredient } from './recipes';
+import { Region, regionForDataCenter, toUniversalisRegion } from './servers';
 
 export type PriceStats = {
   average: number | null;
@@ -38,11 +39,63 @@ const DEFAULT_CACHE_MS = 12 * 60 * 1000; // 12 minutes within 5-15 minute target
 
 let cachedSnapshot: { data: MarketSnapshotData; capturedAt: number } | null = null;
 
+const ingredientIndexByRecipe: Map<number, Map<number, RecipeIngredient>> = new Map();
+for (const recipe of recipes) {
+  const map = new Map<number, RecipeIngredient>();
+  for (const ing of recipe.ingredients) {
+    map.set(Number(ing.itemId), ing);
+  }
+  ingredientIndexByRecipe.set(Number(recipe.outputItemId), map);
+}
+
+function assertRecipeIdentity(id: number) {
+  const canonical = recipesById.get(Number(id));
+  if (canonical && canonical.id !== id) {
+    throw new Error(`Recipe ID mismatch for ${id}: expected ${canonical.id}`);
+  }
+}
+
+export function normalizeSnapshotNames(snapshot: MarketSnapshotData): MarketSnapshotData {
+  const normalizedItems = snapshot.items.map((item) => {
+    const canonical = recipesById.get(Number(item.outputItemId));
+    if (!canonical) return item;
+    assertRecipeIdentity(item.outputItemId);
+
+    const ingIndex = ingredientIndexByRecipe.get(Number(item.outputItemId));
+    const normalizedIngredients = item.ingredients.map((ing) => {
+      const canonicalIng = ingIndex?.get(Number(ing.itemId));
+      if (!canonicalIng) return ing;
+      return { ...ing, name: canonicalIng.name };
+    });
+
+    return { ...item, name: canonical.name, ingredients: normalizedIngredients };
+  });
+
+  return { ...snapshot, items: normalizedItems };
+}
+
 function median(values: number[]): number | null {
   if (!values.length) return null;
   const sorted = [...values].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+}
+
+function resolveLocationContext(options?: {
+  homeWorld?: string;
+  dataCenter?: string;
+  region?: string;
+}): { homeWorld: string; dataCenter?: string; regionLabel: string; regionScope: string } {
+  const homeWorld = options?.homeWorld ?? 'Ravana';
+  const dataCenter = options?.dataCenter;
+  const regionFromProvided = options?.region
+    ? (regionForDataCenter(options.region as Region | string) ?? (options.region as Region | string))
+    : undefined;
+  const regionLabelFromDc = dataCenter ? regionForDataCenter(dataCenter as Region | string) : undefined;
+  const regionLabel = regionFromProvided ?? regionLabelFromDc ?? 'North America';
+  const regionScope = toUniversalisRegion(regionLabel as Region | string);
+
+  return { homeWorld, dataCenter, regionLabel, regionScope };
 }
 
 async function fetchUniversalisPrice(location: string, itemId: number): Promise<PriceStats> {
@@ -79,10 +132,14 @@ async function fetchUniversalisPrice(location: string, itemId: number): Promise<
   }
 }
 
-async function fetchPriceForLocations(itemId: number, home: string, region: string): Promise<{ home: PriceStats; region: PriceStats }> {
+async function fetchPriceForLocations(
+  itemId: number,
+  home: string,
+  regionScope: string
+): Promise<{ home: PriceStats; region: PriceStats }> {
   const [homePrices, regionPrices] = await Promise.all([
     fetchUniversalisPrice(home, itemId),
-    fetchUniversalisPrice(region, itemId)
+    fetchUniversalisPrice(regionScope, itemId)
   ]);
 
   return {
@@ -93,13 +150,13 @@ async function fetchPriceForLocations(itemId: number, home: string, region: stri
 
 async function priceRecipe(
   recipe: RecipeDefinition,
-  locations: { homeWorld: string; region: string },
+  locations: { homeWorld: string; dataCenter?: string; regionLabel: string; regionScope: string },
   overrides?: Record<number, number>
 ): Promise<RecipeMarket> {
   const pricedIngredients: IngredientMarket[] = [];
 
   for (const ing of recipe.ingredients) {
-    const prices = await fetchPriceForLocations(ing.itemId, locations.homeWorld, locations.region);
+    const prices = await fetchPriceForLocations(ing.itemId, locations.homeWorld, locations.regionScope);
     pricedIngredients.push({
       ...ing,
       overridePrice: overrides?.[ing.itemId],
@@ -107,10 +164,13 @@ async function priceRecipe(
     });
   }
 
-  const outputPrices = await fetchPriceForLocations(recipe.outputItemId, locations.homeWorld, locations.region);
+  const outputPrices = await fetchPriceForLocations(recipe.outputItemId, locations.homeWorld, locations.regionScope);
 
   return {
     ...recipe,
+    homeWorld: locations.homeWorld,
+    dataCenter: locations.dataCenter ?? recipe.dataCenter,
+    region: locations.regionLabel,
     universalisUrl: `https://universalis.app/market/${recipe.universalisSlug ?? recipe.outputItemId}`,
     ingredients: pricedIngredients,
     outputPrices,
@@ -121,20 +181,29 @@ async function priceRecipe(
 
 export async function captureMarketSnapshot(options?: {
   homeWorld?: string;
+  dataCenter?: string;
   region?: string;
   cacheMs?: number;
   forceRefresh?: boolean;
   overrides?: Record<number, number>;
 }): Promise<MarketSnapshotData> {
-  const homeWorld = options?.homeWorld ?? 'Ravana';
-  const region = options?.region ?? 'Elemental';
+  const { homeWorld, dataCenter, regionLabel, regionScope } = resolveLocationContext(options);
   const cacheMs = options?.cacheMs ?? DEFAULT_CACHE_MS;
 
   if (!options?.forceRefresh && cachedSnapshot && Date.now() - cachedSnapshot.capturedAt < cacheMs) {
     return cachedSnapshot.data;
   }
 
-  const priced = await Promise.all(recipes.map((r) => priceRecipe(r, { homeWorld, region }, options?.overrides)));
+  const priced = await Promise.all(
+    recipes.map((r) => priceRecipe(r, { homeWorld, dataCenter, regionLabel, regionScope }, options?.overrides))
+  );
+  console.log('[marketData] Priced recipes', {
+    recipeCount: recipes.length,
+    pricedCount: priced.length,
+    homeWorld,
+    region: regionLabel,
+    regionScope
+  });
   const snapshot: MarketSnapshotData = {
     items: priced,
     capturedAt: new Date().toISOString(),
