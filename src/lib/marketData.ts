@@ -1,4 +1,5 @@
 import { recipes, RecipeDefinition, RecipeIngredient } from './recipes';
+import { Region, regionForDataCenter, toUniversalisRegion } from './servers';
 
 export type PriceStats = {
   average: number | null;
@@ -45,6 +46,23 @@ function median(values: number[]): number | null {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
+function resolveLocationContext(options?: {
+  homeWorld?: string;
+  dataCenter?: string;
+  region?: string;
+}): { homeWorld: string; dataCenter?: string; regionLabel: string; regionScope: string } {
+  const homeWorld = options?.homeWorld ?? 'Ravana';
+  const dataCenter = options?.dataCenter;
+  const regionFromProvided = options?.region
+    ? (regionForDataCenter(options.region as Region | string) ?? (options.region as Region | string))
+    : undefined;
+  const regionLabelFromDc = dataCenter ? regionForDataCenter(dataCenter as Region | string) : undefined;
+  const regionLabel = regionFromProvided ?? regionLabelFromDc ?? 'North America';
+  const regionScope = toUniversalisRegion(regionLabel as Region | string);
+
+  return { homeWorld, dataCenter, regionLabel, regionScope };
+}
+
 async function fetchUniversalisPrice(location: string, itemId: number): Promise<PriceStats> {
   const url = `https://universalis.app/api/v2/${encodeURIComponent(location)}/${itemId}?listings=10&entries=20`;
   try {
@@ -79,10 +97,14 @@ async function fetchUniversalisPrice(location: string, itemId: number): Promise<
   }
 }
 
-async function fetchPriceForLocations(itemId: number, home: string, region: string): Promise<{ home: PriceStats; region: PriceStats }> {
+async function fetchPriceForLocations(
+  itemId: number,
+  home: string,
+  regionScope: string
+): Promise<{ home: PriceStats; region: PriceStats }> {
   const [homePrices, regionPrices] = await Promise.all([
     fetchUniversalisPrice(home, itemId),
-    fetchUniversalisPrice(region, itemId)
+    fetchUniversalisPrice(regionScope, itemId)
   ]);
 
   return {
@@ -93,13 +115,13 @@ async function fetchPriceForLocations(itemId: number, home: string, region: stri
 
 async function priceRecipe(
   recipe: RecipeDefinition,
-  locations: { homeWorld: string; region: string },
+  locations: { homeWorld: string; dataCenter?: string; regionLabel: string; regionScope: string },
   overrides?: Record<number, number>
 ): Promise<RecipeMarket> {
   const pricedIngredients: IngredientMarket[] = [];
 
   for (const ing of recipe.ingredients) {
-    const prices = await fetchPriceForLocations(ing.itemId, locations.homeWorld, locations.region);
+    const prices = await fetchPriceForLocations(ing.itemId, locations.homeWorld, locations.regionScope);
     pricedIngredients.push({
       ...ing,
       overridePrice: overrides?.[ing.itemId],
@@ -107,10 +129,13 @@ async function priceRecipe(
     });
   }
 
-  const outputPrices = await fetchPriceForLocations(recipe.outputItemId, locations.homeWorld, locations.region);
+  const outputPrices = await fetchPriceForLocations(recipe.outputItemId, locations.homeWorld, locations.regionScope);
 
   return {
     ...recipe,
+    homeWorld: locations.homeWorld,
+    dataCenter: locations.dataCenter ?? recipe.dataCenter,
+    region: locations.regionLabel,
     universalisUrl: `https://universalis.app/market/${recipe.universalisSlug ?? recipe.outputItemId}`,
     ingredients: pricedIngredients,
     outputPrices,
@@ -121,25 +146,28 @@ async function priceRecipe(
 
 export async function captureMarketSnapshot(options?: {
   homeWorld?: string;
+  dataCenter?: string;
   region?: string;
   cacheMs?: number;
   forceRefresh?: boolean;
   overrides?: Record<number, number>;
 }): Promise<MarketSnapshotData> {
-  const homeWorld = options?.homeWorld ?? 'Ravana';
-  const region = options?.region ?? 'Elemental';
+  const { homeWorld, dataCenter, regionLabel, regionScope } = resolveLocationContext(options);
   const cacheMs = options?.cacheMs ?? DEFAULT_CACHE_MS;
 
   if (!options?.forceRefresh && cachedSnapshot && Date.now() - cachedSnapshot.capturedAt < cacheMs) {
     return cachedSnapshot.data;
   }
 
-  const priced = await Promise.all(recipes.map((r) => priceRecipe(r, { homeWorld, region }, options?.overrides)));
+  const priced = await Promise.all(
+    recipes.map((r) => priceRecipe(r, { homeWorld, dataCenter, regionLabel, regionScope }, options?.overrides))
+  );
   console.log('[marketData] Priced recipes', {
     recipeCount: recipes.length,
     pricedCount: priced.length,
     homeWorld,
-    region
+    region: regionLabel,
+    regionScope
   });
   const snapshot: MarketSnapshotData = {
     items: priced,

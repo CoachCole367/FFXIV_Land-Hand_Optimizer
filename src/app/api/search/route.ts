@@ -19,7 +19,8 @@ async function ensureSnapshot(
   forceRefresh: boolean | undefined,
   overrides: Record<number, number> | undefined,
   homeWorld: string,
-  region: string
+  region: string,
+  dataCenter?: string
 ) {
   try {
     if (snapshotId && !forceRefresh) {
@@ -43,7 +44,7 @@ async function ensureSnapshot(
       }
     }
 
-    const data = await captureMarketSnapshot({ forceRefresh, overrides, homeWorld, region });
+    const data = await captureMarketSnapshot({ forceRefresh, overrides, homeWorld, region, dataCenter });
     console.log('[search] Captured fresh snapshot', { itemCount: data.items.length, source: data.source });
     return prisma.marketSnapshot.create({ data: { data } });
   } catch (error) {
@@ -52,7 +53,7 @@ async function ensureSnapshot(
       return fallbackSnapshot;
     }
 
-    fallbackSnapshot.data = await captureMarketSnapshot({ forceRefresh, overrides, homeWorld, region });
+    fallbackSnapshot.data = await captureMarketSnapshot({ forceRefresh, overrides, homeWorld, region, dataCenter });
     return fallbackSnapshot;
   }
 }
@@ -71,7 +72,8 @@ export async function POST(request: NextRequest) {
     body.forceRefresh,
     parameters.priceOverrides,
     parameters.homeServer || 'Ravana',
-    derivedRegion
+    derivedRegion,
+    parameters.dataCenter
   );
   const snapshotData = snapshot.data as any as MarketSnapshotData;
   if ((snapshotData.items?.length ?? 0) === 0) {

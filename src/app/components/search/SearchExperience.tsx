@@ -82,6 +82,7 @@ export function SearchExperience() {
   );
   const [priceOverridesText, setPriceOverridesText] = useState('');
   const [maxTimeToSell, setMaxTimeToSell] = useState(defaultSearchParameters.maxTimeToSell);
+  const [hideIncomplete, setHideIncomplete] = useState(false);
 
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
@@ -287,8 +288,12 @@ export function SearchExperience() {
   ]);
 
   const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
-  const pagedItems = results.slice((page - 1) * pageSize, page * pageSize);
+  const visibleResults = useMemo(
+    () => (hideIncomplete ? results.filter((entry) => entry.financials.missing.length === 0) : results),
+    [results, hideIncomplete]
+  );
+  const totalPages = Math.max(1, Math.ceil(visibleResults.length / pageSize));
+  const pagedItems = visibleResults.slice((page - 1) * pageSize, page * pageSize);
 
   const clearPresetForm = () => {
     setPresetName('');
@@ -575,13 +580,24 @@ export function SearchExperience() {
       <div className="panel">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h3 style={{ margin: 0 }}>Results ({results.length})</h3>
+            <h3 style={{ margin: 0 }}>
+              Results ({visibleResults.length}
+              {hideIncomplete ? ` / ${results.length}` : ''})
+            </h3>
             <p className="muted" style={{ marginTop: '0.25rem' }}>
               Sorting by {sortKey} ({sortDir}). Profit and ROI respect yields and cost/revenue modes.
             </p>
             {message && <p className="muted">{message}</p>}
           </div>
           <div className="row" style={{ gap: '0.5rem' }}>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={hideIncomplete}
+                onChange={(e) => setHideIncomplete(e.target.checked)}
+              />
+              <span>Hide rows with missing prices</span>
+            </label>
             <label className="switch">
               <input
                 type="checkbox"
@@ -687,7 +703,7 @@ export function SearchExperience() {
 
         <div className="row" style={{ marginTop: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="muted">
-            Showing {pagedItems.length} of {results.length} entries {isSearching && '(refreshing…)'}
+            Showing {pagedItems.length} of {visibleResults.length} entries {isSearching && '(refreshing…)'}
           </div>
           <div className="pagination">
             <button className="ghost" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>

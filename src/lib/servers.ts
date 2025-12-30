@@ -129,3 +129,16 @@ export function regionForDataCenter(dcName?: string) {
   const match = dataCenters.find((dc) => dc.name === dcName);
   return match?.region;
 }
+
+export function toUniversalisRegion(region: Region | string) {
+  const map: Record<string, string> = {
+    'North America': 'North-America',
+    Europe: 'Europe',
+    Japan: 'Japan',
+    Oceania: 'Oceania',
+    Korea: 'Korea',
+    China: 'China'
+  };
+
+  return map[region] ?? String(region);
+}
