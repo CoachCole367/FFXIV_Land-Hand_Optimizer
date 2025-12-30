@@ -14,6 +14,16 @@ const memorySnapshot: { id: string; data: MarketSnapshotData } = {
   }
 };
 
+const memorySnapshot: { id: string; data: MarketSnapshotData } = {
+  id: 'in-memory',
+  data: {
+    items: [],
+    capturedAt: new Date(0).toISOString(),
+    cacheMs: 12 * 60 * 1000,
+    source: 'fallback'
+  }
+};
+
 async function ensureSnapshot(
   snapshotId: string | undefined,
   forceRefresh: boolean | undefined,
