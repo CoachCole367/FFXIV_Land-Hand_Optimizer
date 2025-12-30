@@ -4,9 +4,8 @@ const basePath = repoName ? `/${repoName.replace(/^\/+|\/+$/g, '')}` : '';
 
 const nextConfig = {
   reactStrictMode: true,
-  output: 'export',
-  trailingSlash: true,
-  skipTrailingSlashRedirect: true,
+  // Keep optional base paths for deployments that need it, but allow the runtime
+  // server to handle API routes so interactive flows (search, presets) work.
   basePath: basePath || undefined,
   assetPrefix: basePath || undefined,
   images: {
