@@ -21,7 +21,8 @@ model Preset {
   id          String          @id @default(cuid())
   name        String
   description String
-  tags        String[]
+  // SQLite does not support scalar lists; store tags as JSON array instead.
+  tags        Json?
   isDefault   Boolean         @default(false)
   parameters  Json
   snapshotId  String
