@@ -33,11 +33,18 @@ async function ensureSnapshot(
         const latestData = latest.data as MarketSnapshotData;
         const captured = latestData.capturedAt ? new Date(latestData.capturedAt).getTime() : latest.createdAt.getTime();
         const maxAge = latestData.cacheMs ?? 15 * 60 * 1000;
-        if (Date.now() - captured < maxAge) return latest;
+        if (Date.now() - captured < maxAge) {
+          if ((latestData.items?.length ?? 0) === 0) {
+            console.warn('[search] Latest snapshot was empty, capturing a fresh one');
+          } else {
+            return latest;
+          }
+        }
       }
     }
 
     const data = await captureMarketSnapshot({ forceRefresh, overrides, homeWorld, region });
+    console.log('[search] Captured fresh snapshot', { itemCount: data.items.length, source: data.source });
     return prisma.marketSnapshot.create({ data: { data } });
   } catch (error) {
     console.error('Falling back to in-memory market snapshot because the database is unavailable:', error);
@@ -66,7 +73,20 @@ export async function POST(request: NextRequest) {
     parameters.homeServer || 'Ravana',
     derivedRegion
   );
-  const { results, availableCategories } = runSearch(snapshot.data as any, parameters);
+  const snapshotData = snapshot.data as any as MarketSnapshotData;
+  if ((snapshotData.items?.length ?? 0) === 0) {
+    console.warn('[search] Snapshot contained zero items even after refresh attempt');
+  }
+  const { results, availableCategories } = runSearch(snapshotData, parameters);
+
+  console.log('[search] Completed search', {
+    snapshotId: snapshot.id,
+    snapshotItems: snapshotData.items?.length ?? 0,
+    resultsCount: results.length,
+    derivedRegion,
+    dataCenter: parameters.dataCenter,
+    homeServer: parameters.homeServer
+  });
 
   return NextResponse.json({
     snapshotId: snapshot.id,

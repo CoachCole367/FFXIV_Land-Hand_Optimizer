@@ -135,6 +135,12 @@ export async function captureMarketSnapshot(options?: {
   }
 
   const priced = await Promise.all(recipes.map((r) => priceRecipe(r, { homeWorld, region }, options?.overrides)));
+  console.log('[marketData] Priced recipes', {
+    recipeCount: recipes.length,
+    pricedCount: priced.length,
+    homeWorld,
+    region
+  });
   const snapshot: MarketSnapshotData = {
     items: priced,
     capturedAt: new Date().toISOString(),
