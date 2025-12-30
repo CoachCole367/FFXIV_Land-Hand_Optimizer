@@ -4,17 +4,7 @@ import { captureMarketSnapshot, MarketSnapshotData } from '@/lib/marketData';
 import { defaultSearchParameters, runSearch, SearchParameters } from '@/lib/search';
 import { regionForDataCenter } from '@/lib/servers';
 
-const memorySnapshot: { id: string; data: MarketSnapshotData } = {
-  id: 'in-memory',
-  data: {
-    items: [],
-    capturedAt: new Date(0).toISOString(),
-    cacheMs: 12 * 60 * 1000,
-    source: 'fallback'
-  }
-};
-
-const memorySnapshot: { id: string; data: MarketSnapshotData } = {
+const fallbackSnapshot: { id: string; data: MarketSnapshotData } = {
   id: 'in-memory',
   data: {
     items: [],
@@ -51,12 +41,12 @@ async function ensureSnapshot(
     return prisma.marketSnapshot.create({ data: { data } });
   } catch (error) {
     console.error('Falling back to in-memory market snapshot because the database is unavailable:', error);
-    if (!forceRefresh && memorySnapshot.data.items.length) {
-      return memorySnapshot;
+    if (!forceRefresh && fallbackSnapshot.data.items.length) {
+      return fallbackSnapshot;
     }
 
-    memorySnapshot.data = await captureMarketSnapshot({ forceRefresh, overrides, homeWorld, region });
-    return memorySnapshot;
+    fallbackSnapshot.data = await captureMarketSnapshot({ forceRefresh, overrides, homeWorld, region });
+    return fallbackSnapshot;
   }
 }
 
