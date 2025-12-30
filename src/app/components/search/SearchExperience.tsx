@@ -95,9 +95,17 @@ export function SearchExperience() {
   const availableWorlds = useMemo(() => (dataCenter ? worldsForDataCenter(dataCenter) : []), [dataCenter]);
 
   useEffect(() => {
-    if (!homeServer) return;
-    if (dataCenter && !worldsForDataCenter(dataCenter).includes(homeServer)) {
-      setHomeServer('');
+    if (!homeServer && dataCenter) {
+      const firstWorld = worldsForDataCenter(dataCenter)[0];
+      if (firstWorld) {
+        setHomeServer(firstWorld);
+      }
+      return;
+    }
+
+    if (homeServer && dataCenter && !worldsForDataCenter(dataCenter).includes(homeServer)) {
+      const fallbackWorld = worldsForDataCenter(dataCenter)[0] ?? '';
+      setHomeServer(fallbackWorld);
     }
   }, [homeServer, dataCenter]);
 
