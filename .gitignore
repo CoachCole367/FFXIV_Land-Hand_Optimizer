@@ -1,6 +1,8 @@
 node_modules
 .next
 out
+prisma/mock-db.json
+prisma/*.db
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

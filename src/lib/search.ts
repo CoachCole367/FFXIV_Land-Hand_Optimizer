@@ -1,5 +1,6 @@
 import { MarketSnapshot, Preset } from '@prisma/client';
 import { MarketSnapshotData, RecipeMarket } from './marketData';
+import { dataCentersForRegion, regionForDataCenter } from './servers';
 
 export type CostMode = 'regionalMedian' | 'regionalAverage' | 'minListing' | 'blended';
 export type RevenueMode = 'homeMin' | 'regionalMin' | 'regionalMedian' | 'regionalAverage';
@@ -8,7 +9,7 @@ export type SortKey = 'name' | 'profit' | 'roi' | 'level' | 'stars' | 'yields' |
 export type SearchParameters = {
   query: string;
   homeServer: string;
-  region: string;
+  region?: string;
   dataCenter: string;
   categories: string[];
   jobFilter: 'any' | 'DoH' | 'Omni';
@@ -40,6 +41,7 @@ export type Financials = {
   profitPerUnit: number;
   roi: number;
   timeToSellDays: number | null;
+  saleVelocityPerDay: number | null;
   missing: string[];
 };
 
@@ -102,7 +104,17 @@ export function computeFinancials(item: RecipeMarket, parameters: SearchParamete
   const saleVelocity = item.outputPrices.home.recentSaleVelocity ?? item.outputPrices.region.recentSaleVelocity;
   const timeToSellDays = saleVelocity && saleVelocity > 0 ? item.yields / saleVelocity : null;
 
-  return { revenue, revenuePerUnit, cost: materialCost, profit, profitPerUnit, roi, timeToSellDays, missing };
+  return {
+    revenue,
+    revenuePerUnit,
+    cost: materialCost,
+    profit,
+    profitPerUnit,
+    roi,
+    timeToSellDays,
+    saleVelocityPerDay: saleVelocity ?? null,
+    missing
+  };
 }
 
 export function runSearch(
@@ -110,56 +122,131 @@ export function runSearch(
   parameters: SearchParameters
 ): { results: SearchResult[]; availableCategories: string[] } {
   const items = snapshotData.items;
+  const debugCounts: Record<string, number> = { loaded: items.length };
   const lowerQuery = parameters.query.trim().toLowerCase();
   const availableCategories = Array.from(new Set(items.map((item) => item.category))).sort();
 
-  const filtered = items
-    .filter((item) => (!lowerQuery ? true : item.name.toLowerCase().includes(lowerQuery)))
-    .filter((item) => (!parameters.homeServer ? true : (item.homeWorld ?? '').toLowerCase().includes(parameters.homeServer.toLowerCase())))
-    .filter((item) => (!parameters.region ? true : (item.region ?? '').toLowerCase().includes(parameters.region.toLowerCase())))
-    .filter((item) =>
-      !parameters.dataCenter ? true : (item.dataCenter ?? '').toLowerCase().includes(parameters.dataCenter.toLowerCase())
-    )
-    .filter((item) => (parameters.categories.length === 0 ? true : parameters.categories.includes(item.category)))
-    .filter((item) =>
-      parameters.jobFilter === 'any' ? true : item.job === parameters.jobFilter || (parameters.jobFilter === 'Omni' && item.job === 'Omni')
-    )
-    .filter((item) => (parameters.expertOnly ? item.isExpert : true))
-    .filter((item) => (parameters.timedNodeOnly ? item.timedNodeCount > 0 : true))
-    .filter((item) => item.complexity <= parameters.maxComplexity)
-    .filter((item) => item.yields >= parameters.minYield)
-    .filter((item) => item.stars >= parameters.starLimit)
-    .filter((item) => item.level >= parameters.levelRange[0] && item.level <= parameters.levelRange[1])
-    .filter((item) => (parameters.onlyOmnicrafterFriendly ? item.job === 'Omni' : true))
-    .filter((item) => {
-      const financials = computeFinancials(item, parameters);
-      const meetsSales = financials.revenue >= parameters.minSales;
+  const derivedRegion = parameters.region ?? regionForDataCenter(parameters.dataCenter) ?? '';
+  const regionDataCenters = dataCentersForRegion(derivedRegion).map((dc) => dc.name.toLowerCase());
+
+  const withFinancials = items.map((item) => ({
+    item,
+    financials: computeFinancials(item, parameters)
+  }));
+  debugCounts.withFinancials = withFinancials.length;
+
+  const filtered = withFinancials
+    .filter(({ item }) => {
+      const match = !lowerQuery ? true : item.name.toLowerCase().includes(lowerQuery);
+      if (match) debugCounts.query = (debugCounts.query ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = !parameters.homeServer
+        ? true
+        : (item.homeWorld ?? '').toLowerCase().includes(parameters.homeServer.toLowerCase());
+      if (match) debugCounts.homeServer = (debugCounts.homeServer ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      if (!derivedRegion) {
+        debugCounts.region = (debugCounts.region ?? 0) + 1;
+        return true;
+      }
+      const candidate = (item.region ?? '').toLowerCase();
+      const match = candidate.includes(derivedRegion.toLowerCase()) || regionDataCenters.some((dc) => candidate.includes(dc));
+      if (match) debugCounts.region = (debugCounts.region ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = !parameters.dataCenter
+        ? true
+        : (item.dataCenter ?? '').toLowerCase().includes(parameters.dataCenter.toLowerCase());
+      if (match) debugCounts.dataCenter = (debugCounts.dataCenter ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = parameters.categories.length === 0 ? true : parameters.categories.includes(item.category);
+      if (match) debugCounts.categories = (debugCounts.categories ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match =
+        parameters.jobFilter === 'any'
+          ? true
+          : item.job === parameters.jobFilter || (parameters.jobFilter === 'Omni' && item.job === 'Omni');
+      if (match) debugCounts.job = (debugCounts.job ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = parameters.expertOnly ? item.isExpert : true;
+      if (match) debugCounts.expert = (debugCounts.expert ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = parameters.timedNodeOnly ? item.timedNodeCount > 0 : true;
+      if (match) debugCounts.timedNodes = (debugCounts.timedNodes ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = item.complexity <= parameters.maxComplexity;
+      if (match) debugCounts.complexity = (debugCounts.complexity ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = item.yields >= parameters.minYield;
+      if (match) debugCounts.yields = (debugCounts.yields ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = item.stars >= parameters.starLimit;
+      if (match) debugCounts.stars = (debugCounts.stars ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = item.level >= parameters.levelRange[0] && item.level <= parameters.levelRange[1];
+      if (match) debugCounts.level = (debugCounts.level ?? 0) + 1;
+      return match;
+    })
+    .filter(({ item }) => {
+      const match = parameters.onlyOmnicrafterFriendly ? item.job === 'Omni' : true;
+      if (match) debugCounts.omniFriendly = (debugCounts.omniFriendly ?? 0) + 1;
+      return match;
+    })
+    .filter(({ financials }) => {
+      const salesPerWeek = financials.saleVelocityPerDay != null ? financials.saleVelocityPerDay * 7 : null;
+      const meetsSales = parameters.minSales > 0 ? (salesPerWeek ?? 0) >= parameters.minSales : true;
       const meetsPrice = financials.revenuePerUnit >= parameters.minPrice;
       const meetsProfit = financials.profit >= parameters.minProfit;
-      const meetsTime = parameters.maxTimeToSell > 0 ? (financials.timeToSellDays ?? Number.MAX_VALUE) <= parameters.maxTimeToSell : true;
-      return meetsSales && meetsPrice && meetsProfit && meetsTime;
+      const meetsTime =
+        parameters.maxTimeToSell > 0 ? (financials.timeToSellDays ?? Number.MAX_VALUE) <= parameters.maxTimeToSell : true;
+      const match = meetsSales && meetsPrice && meetsProfit && meetsTime;
+      if (match) debugCounts.financial = (debugCounts.financial ?? 0) + 1;
+      return match;
     });
 
-  const results = filtered
-    .map((item) => ({
-      item,
-      financials: computeFinancials(item, parameters)
-    }))
-    .sort((a, b) => {
-      const selectors: Record<SortKey, number> = {
-        name: a.item.name.localeCompare(b.item.name),
-        profit: a.financials.profit - b.financials.profit,
-        roi: a.financials.roi - b.financials.roi,
-        level: a.item.level - b.item.level,
-        stars: a.item.stars - b.item.stars,
-        yields: a.item.yields - b.item.yields,
-        profitPerUnit: a.financials.profitPerUnit - b.financials.profitPerUnit,
-        timeToSell: (a.financials.timeToSellDays ?? Number.MAX_VALUE) - (b.financials.timeToSellDays ?? Number.MAX_VALUE)
-      } as const;
+  const results = filtered.sort((a, b) => {
+    const selectors: Record<SortKey, number> = {
+      name: a.item.name.localeCompare(b.item.name),
+      profit: a.financials.profit - b.financials.profit,
+      roi: a.financials.roi - b.financials.roi,
+      level: a.item.level - b.item.level,
+      stars: a.item.stars - b.item.stars,
+      yields: a.item.yields - b.item.yields,
+      profitPerUnit: a.financials.profitPerUnit - b.financials.profitPerUnit,
+      timeToSell: (a.financials.timeToSellDays ?? Number.MAX_VALUE) - (b.financials.timeToSellDays ?? Number.MAX_VALUE)
+    } as const;
 
-      const value = parameters.sortKey === 'name' ? selectors.name : selectors[parameters.sortKey];
-      return parameters.sortDir === 'asc' ? value : value * -1;
-    });
+    const value = parameters.sortKey === 'name' ? selectors.name : selectors[parameters.sortKey];
+    return parameters.sortDir === 'asc' ? value : value * -1;
+  });
+
+  console.log('[search] Filter pipeline counts', {
+    counts: debugCounts,
+    final: results.length,
+    sortKey: parameters.sortKey,
+    sortDir: parameters.sortDir
+  });
 
   return { results, availableCategories };
 }
@@ -167,7 +254,6 @@ export function runSearch(
 export const defaultSearchParameters: SearchParameters = {
   query: '',
   homeServer: '',
-  region: '',
   dataCenter: '',
   categories: [],
   jobFilter: 'any',
