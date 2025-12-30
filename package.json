@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "[ -d out ] && touch out/.nojekyll || true",
     "start": "next start",
     "lint": "next lint"
   },
