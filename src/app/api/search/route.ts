@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { captureMarketSnapshot, MarketSnapshotData } from '@/lib/marketData';
+import { captureMarketSnapshot, MarketSnapshotData, normalizeSnapshotNames } from '@/lib/marketData';
 import { defaultSearchParameters, runSearch, SearchParameters } from '@/lib/search';
 import { regionForDataCenter } from '@/lib/servers';
 
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     derivedRegion,
     parameters.dataCenter
   );
-  const snapshotData = snapshot.data as any as MarketSnapshotData;
+  const snapshotData = normalizeSnapshotNames(snapshot.data as any as MarketSnapshotData);
   if ((snapshotData.items?.length ?? 0) === 0) {
     console.warn('[search] Snapshot contained zero items even after refresh attempt');
   }

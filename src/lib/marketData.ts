@@ -1,4 +1,4 @@
-import { recipes, RecipeDefinition, RecipeIngredient } from './recipes';
+import { recipes, recipesById, RecipeDefinition, RecipeIngredient } from './recipes';
 import { Region, regionForDataCenter, toUniversalisRegion } from './servers';
 
 export type PriceStats = {
@@ -38,6 +38,41 @@ export type MarketSnapshotData = {
 const DEFAULT_CACHE_MS = 12 * 60 * 1000; // 12 minutes within 5-15 minute target
 
 let cachedSnapshot: { data: MarketSnapshotData; capturedAt: number } | null = null;
+
+const ingredientIndexByRecipe: Map<number, Map<number, RecipeIngredient>> = new Map();
+for (const recipe of recipes) {
+  const map = new Map<number, RecipeIngredient>();
+  for (const ing of recipe.ingredients) {
+    map.set(Number(ing.itemId), ing);
+  }
+  ingredientIndexByRecipe.set(Number(recipe.outputItemId), map);
+}
+
+function assertRecipeIdentity(id: number) {
+  const canonical = recipesById.get(Number(id));
+  if (canonical && canonical.id !== id) {
+    throw new Error(`Recipe ID mismatch for ${id}: expected ${canonical.id}`);
+  }
+}
+
+export function normalizeSnapshotNames(snapshot: MarketSnapshotData): MarketSnapshotData {
+  const normalizedItems = snapshot.items.map((item) => {
+    const canonical = recipesById.get(Number(item.outputItemId));
+    if (!canonical) return item;
+    assertRecipeIdentity(item.outputItemId);
+
+    const ingIndex = ingredientIndexByRecipe.get(Number(item.outputItemId));
+    const normalizedIngredients = item.ingredients.map((ing) => {
+      const canonicalIng = ingIndex?.get(Number(ing.itemId));
+      if (!canonicalIng) return ing;
+      return { ...ing, name: canonicalIng.name };
+    });
+
+    return { ...item, name: canonical.name, ingredients: normalizedIngredients };
+  });
+
+  return { ...snapshot, items: normalizedItems };
+}
 
 function median(values: number[]): number | null {
   if (!values.length) return null;

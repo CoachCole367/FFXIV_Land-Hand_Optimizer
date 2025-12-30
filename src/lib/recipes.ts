@@ -149,3 +149,8 @@ export const recipes: RecipeDefinition[] = [
     ]
   }
 ];
+
+// Canonical lookup by output item ID to avoid treating the recipes array as ID-indexed
+export const recipesById = new Map<number, RecipeDefinition>(
+  recipes.map((recipe) => [Number(recipe.outputItemId), recipe])
+);
