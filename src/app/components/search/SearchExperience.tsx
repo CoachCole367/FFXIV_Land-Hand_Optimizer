@@ -449,13 +449,14 @@ export function SearchExperience() {
                   </select>
                 </label>
                 <label>
-                  Minimum recent sales (gil)
+                  Minimum sales per week
                   <input
                     type="number"
                     min={0}
                     value={minSales}
                     onChange={(e) => setMinSales(Number(e.target.value))}
                   />
+                  <span className="muted">Filter by recent sale velocity (approx. per week).</span>
                 </label>
                 <label>
                   Minimum price per unit
