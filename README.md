@@ -2,6 +2,29 @@
 
 Static Next.js UI for Craftsim-friendly crafting searches, presets, and settings.
 
+## Run locally
+
+Prerequisites:
+
+- Node.js 20+ and npm
+- Optional: SQLite for Prisma (the default `DATABASE_URL` uses a file-based DB)
+
+Setup and start the dev server:
+
+```bash
+npm install
+
+# (optional) configure a local database for presets and snapshots
+echo "DATABASE_URL=\"file:./prisma/dev.db\"" > .env
+
+# generate the Prisma client if you change the schema
+npm run prisma:generate
+
+npm run dev
+```
+
+The app starts on http://localhost:3000. Hot reload is enabled by default.
+
 ## GitHub Pages
 
 The site is configured for static export so it can run on GitHub Pages. Set the base path before building so assets resolve under the repository scope:
