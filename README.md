@@ -20,6 +20,10 @@ echo "DATABASE_URL=\"file:./prisma/dev.db\"" > .env
 # generate the Prisma client if you change the schema
 npm run prisma:generate
 
+# Tip: if the npm registry is blocked, the generator falls back to an offline
+# mock client so development can continue. Set PRISMA_FORCE_MOCK=1 to skip the
+# network attempt entirely.
+
 npm run dev
 ```
 

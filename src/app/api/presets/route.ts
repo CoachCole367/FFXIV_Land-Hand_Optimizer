@@ -29,6 +29,7 @@ export async function GET(request: NextRequest) {
 
   const sanitized = presets.map((preset) => ({
     ...preset,
+    tags: Array.isArray(preset.tags) ? preset.tags.map((tag) => String(tag)) : [],
     parameters: includeParameters ? preset.parameters : undefined
   }));
 
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
     data: {
       name: body.name,
       description: body.description ?? '',
-      tags: (body.tags as string[]) ?? [],
+      tags: Array.isArray(body.tags) ? (body.tags as unknown[]).map((tag) => String(tag)) : [],
       isDefault: Boolean(body.isDefault),
       parameters,
       snapshotId: snapshot.id

@@ -28,7 +28,11 @@ export default function PresetsPage() {
     setIsLoading(true);
     const res = await fetch('/api/presets');
     const data = await res.json();
-    setPresets(data.presets ?? []);
+    const normalized = (data.presets as any[] | undefined)?.map((preset) => ({
+      ...preset,
+      tags: Array.isArray(preset.tags) ? (preset.tags as unknown[]).map((tag) => String(tag)) : []
+    }));
+    setPresets(normalized ?? []);
     setIsLoading(false);
   }
 
