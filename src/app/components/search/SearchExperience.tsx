@@ -3,17 +3,39 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { CraftItem } from '@/lib/marketData';
+import { RecipeMarket } from '@/lib/marketData';
 import { Financials, SearchParameters, defaultSearchParameters } from '@/lib/search';
 import { useAppSettings } from '../../providers/AppSettingsProvider';
 
 type SearchResult = {
-  item: CraftItem;
+  item: RecipeMarket;
   financials: Financials;
 };
 
 function formatGil(value: number) {
   return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
+function formatDays(value: number | null) {
+  if (value == null) return '—';
+  return `${value.toFixed(1)}d`;
+}
+
+function parseOverrides(input: string): Record<number, number> {
+  const map: Record<number, number> = {};
+  input
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .forEach((entry) => {
+      const [id, price] = entry.split('=');
+      const parsedId = Number(id.trim());
+      const parsedPrice = Number(price?.trim());
+      if (Number.isFinite(parsedId) && Number.isFinite(parsedPrice)) {
+        map[parsedId] = parsedPrice;
+      }
+    });
+  return map;
 }
 
 export function SearchExperience() {
@@ -38,10 +60,12 @@ export function SearchExperience() {
   const [sortDir, setSortDir] = useState<SearchParameters['sortDir']>(defaultSearchParameters.sortDir);
   const [page, setPage] = useState(1);
   const [showAdvanced, setShowAdvanced] = useState(true);
-  const [selectedItem, setSelectedItem] = useState<CraftItem | null>(null);
+  const [selectedItem, setSelectedItem] = useState<RecipeMarket | null>(null);
   const [onlyOmnicrafterFriendly, setOnlyOmnicrafterFriendly] = useState(
     defaultSearchParameters.onlyOmnicrafterFriendly
   );
+  const [timedNodeOnly, setTimedNodeOnly] = useState(defaultSearchParameters.timedNodeOnly);
+  const [maxComplexity, setMaxComplexity] = useState(defaultSearchParameters.maxComplexity);
   const [availableCategories, setAvailableCategories] = useState<string[]>([]);
   const [results, setResults] = useState<SearchResult[]>([]);
   const [snapshotId, setSnapshotId] = useState<string | null>(null);
@@ -50,6 +74,14 @@ export function SearchExperience() {
   const [message, setMessage] = useState<string | null>(null);
   const [isHydratingPreset, setIsHydratingPreset] = useState(false);
   const [activePresetId, setActivePresetId] = useState<string | null>(null);
+  const [blendedListingWeight, setBlendedListingWeight] = useState(
+    defaultSearchParameters.blendedListingWeight
+  );
+  const [includeVendorPrices, setIncludeVendorPrices] = useState(
+    defaultSearchParameters.includeVendorPrices
+  );
+  const [priceOverridesText, setPriceOverridesText] = useState('');
+  const [maxTimeToSell, setMaxTimeToSell] = useState(defaultSearchParameters.maxTimeToSell);
 
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
@@ -74,20 +106,31 @@ export function SearchExperience() {
       levelRange,
       expertOnly,
       onlyOmnicrafterFriendly,
+      timedNodeOnly,
+      maxComplexity,
       costMode,
       revenueMode,
+      blendedListingWeight,
+      includeVendorPrices,
+      priceOverrides: parseOverrides(priceOverridesText),
+      maxTimeToSell,
       sortKey,
       sortDir
     };
   }, [
+    blendedListingWeight,
     costMode,
     dataCenter,
+    includeVendorPrices,
     homeServer,
     jobFilter,
+    maxComplexity,
+    maxTimeToSell,
     minPrice,
     minProfit,
     minSales,
     minYield,
+    priceOverridesText,
     query,
     region,
     revenueMode,
@@ -97,7 +140,8 @@ export function SearchExperience() {
     starLimit,
     levelRange,
     expertOnly,
-    onlyOmnicrafterFriendly
+    onlyOmnicrafterFriendly,
+    timedNodeOnly
   ]);
 
   const applyParameters = useCallback(
@@ -116,8 +160,18 @@ export function SearchExperience() {
       setLevelRange(parameters.levelRange);
       setExpertOnly(parameters.expertOnly);
       setOnlyOmnicrafterFriendly(parameters.onlyOmnicrafterFriendly);
+      setTimedNodeOnly(parameters.timedNodeOnly);
+      setMaxComplexity(parameters.maxComplexity);
       setCostMode(parameters.costMode);
       setRevenueMode(parameters.revenueMode);
+      setBlendedListingWeight(parameters.blendedListingWeight);
+      setIncludeVendorPrices(parameters.includeVendorPrices);
+      setPriceOverridesText(
+        Object.entries(parameters.priceOverrides || {})
+          .map(([id, price]) => `${id}=${price}`)
+          .join(', ')
+      );
+      setMaxTimeToSell(parameters.maxTimeToSell);
       setSortKey(parameters.sortKey);
       setSortDir(parameters.sortDir);
     },
@@ -134,14 +188,15 @@ export function SearchExperience() {
   };
 
   const runSearch = useCallback(
-    async (parameters?: SearchParameters, snapshotOverride?: string | null) => {
+    async (parameters?: SearchParameters, snapshotOverride?: string | null, forceRefresh?: boolean) => {
       setIsSearching(true);
       const res = await fetch('/api/search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           parameters: parameters ?? buildParameters(),
-          snapshotId: snapshotOverride ?? snapshotId
+          snapshotId: snapshotOverride ?? snapshotId,
+          forceRefresh
         })
       });
 
@@ -209,12 +264,18 @@ export function SearchExperience() {
     minYield,
     starLimit,
     levelRange,
+    timedNodeOnly,
+    maxComplexity,
     onlyOmnicrafterFriendly,
     minSales,
     minPrice,
     minProfit,
     costMode,
     revenueMode,
+    blendedListingWeight,
+    includeVendorPrices,
+    priceOverridesText,
+    maxTimeToSell,
     sortKey,
     sortDir,
     isHydratingPreset,
@@ -307,16 +368,39 @@ export function SearchExperience() {
           <label>
             Cost mode
             <select value={costMode} onChange={(e) => setCostMode(e.target.value as SearchParameters['costMode'])}>
-              <option value="materialAverage">Material average (Craftsim)</option>
-              <option value="marketPurchase">Market purchase</option>
+              <option value="regionalMedian">Regional median</option>
+              <option value="regionalAverage">Regional average</option>
+              <option value="minListing">Minimum listing</option>
+              <option value="blended">Blended median / min</option>
             </select>
           </label>
           <label>
             Revenue mode
             <select value={revenueMode} onChange={(e) => setRevenueMode(e.target.value as SearchParameters['revenueMode'])}>
-              <option value="recentSales">Recent sales</option>
-              <option value="marketBoard">Market board listings</option>
+              <option value="homeMin">Home world min listing</option>
+              <option value="regionalMin">Regional min listing</option>
+              <option value="regionalMedian">Regional median</option>
+              <option value="regionalAverage">Regional average</option>
             </select>
+          </label>
+          <label>
+            Blended listing weight ({Math.round(blendedListingWeight * 100)}% listings)
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={blendedListingWeight}
+              onChange={(e) => setBlendedListingWeight(Number(e.target.value))}
+            />
+          </label>
+          <label className="switch" style={{ alignSelf: 'flex-end' }}>
+            <input
+              type="checkbox"
+              checked={includeVendorPrices}
+              onChange={(e) => setIncludeVendorPrices(e.target.checked)}
+            />
+            <span>Prefer vendor/override prices</span>
           </label>
         </div>
 
@@ -406,6 +490,26 @@ export function SearchExperience() {
                   />
                 </label>
                 <label>
+                  Max ingredients (complexity)
+                  <input
+                    type="range"
+                    min={1}
+                    max={12}
+                    value={maxComplexity}
+                    onChange={(e) => setMaxComplexity(Number(e.target.value))}
+                  />
+                  <span className="muted">Up to {maxComplexity} ingredients</span>
+                </label>
+                <label>
+                  Max time to sell (days)
+                  <input
+                    type="number"
+                    min={0}
+                    value={maxTimeToSell}
+                    onChange={(e) => setMaxTimeToSell(Number(e.target.value))}
+                  />
+                </label>
+                <label>
                   Level range ({levelRange[0]} - {levelRange[1]})
                   <input
                     type="range"
@@ -425,6 +529,20 @@ export function SearchExperience() {
                 <label className="switch" style={{ alignSelf: 'flex-end' }}>
                   <input type="checkbox" checked={expertOnly} onChange={(e) => setExpertOnly(e.target.checked)} />
                   <span>Expert recipes only</span>
+                </label>
+                <label className="switch" style={{ alignSelf: 'flex-end' }}>
+                  <input type="checkbox" checked={timedNodeOnly} onChange={(e) => setTimedNodeOnly(e.target.checked)} />
+                  <span>Timed node ingredients</span>
+                </label>
+                <label style={{ gridColumn: '1 / span 2' }}>
+                  Price overrides (itemId=price, comma separated)
+                  <textarea
+                    value={priceOverridesText}
+                    onChange={(e) => setPriceOverridesText(e.target.value)}
+                    placeholder="36078=1200, 36123=500"
+                    rows={3}
+                  />
+                  <span className="muted">Overrides apply before vendor and market prices.</span>
                 </label>
               </div>
             </div>
@@ -450,7 +568,9 @@ export function SearchExperience() {
               />
               <span>Ascending</span>
             </label>
-            <button className="ghost" onClick={() => runSearch()}>Refresh with snapshot</button>
+            <button className="ghost" onClick={() => runSearch(undefined, null, true)}>
+              Refresh with Universalis
+            </button>
           </div>
         </div>
 
@@ -463,15 +583,17 @@ export function SearchExperience() {
                 <th onClick={() => toggleSort('yields')}>Yields</th>
                 <th>Cost ({costMode})</th>
                 <th>Revenue ({revenueMode})</th>
-                <th onClick={() => toggleSort('profit')}>Profit</th>
+                <th onClick={() => toggleSort('profit')}>Profit (craft/unit)</th>
                 <th onClick={() => toggleSort('roi')}>ROI</th>
+                <th onClick={() => toggleSort('timeToSell')}>Sell ETA</th>
                 <th>Links</th>
                 <th>Warnings</th>
               </tr>
             </thead>
             <tbody>
               {pagedItems.map(({ item, financials }) => {
-                const warnings = financials.missing;
+                const warnings = [...financials.missing];
+                if (financials.timeToSellDays == null) warnings.push('no sale velocity');
                 return (
                   <tr key={item.id}>
                     <td>
@@ -495,20 +617,29 @@ export function SearchExperience() {
                         <span className="muted">{item.job}</span>
                       </div>
                     </td>
-                    <td>
+                  <td>
                       {financials.cost || financials.cost === 0 ? `${formatGil(financials.cost)} gil` : '—'}
-                    </td>
-                    <td>
-                      {financials.revenue || financials.revenue === 0
-                        ? `${formatGil(financials.revenue)} gil`
-                        : '—'}
-                    </td>
-                    <td>
-                      <span style={{ color: financials.profit >= 0 ? 'var(--accent)' : 'var(--danger)' }}>
-                        {formatGil(financials.profit)} gil
-                      </span>
-                    </td>
-                    <td>{Number.isFinite(financials.roi) ? `${(financials.roi * 100).toFixed(1)}%` : '—'}</td>
+                  </td>
+                  <td>
+                      {financials.revenue || financials.revenue === 0 ? (
+                        <div className="grid" style={{ gap: '0.15rem' }}>
+                          <span>{formatGil(financials.revenue)} gil</span>
+                          <span className="muted">Unit: {formatGil(financials.revenuePerUnit)} gil</span>
+                        </div>
+                      ) : (
+                        '—'
+                      )}
+                  </td>
+                  <td>
+                      <div className="grid" style={{ gap: '0.15rem' }}>
+                        <span style={{ color: financials.profit >= 0 ? 'var(--accent)' : 'var(--danger)' }}>
+                          {formatGil(financials.profit)} gil
+                        </span>
+                        <span className="muted">Unit: {formatGil(financials.profitPerUnit)} gil</span>
+                      </div>
+                  </td>
+                  <td>{Number.isFinite(financials.roi) ? `${(financials.roi * 100).toFixed(1)}%` : '—'}</td>
+                  <td>{formatDays(financials.timeToSellDays)}</td>
                     <td>
                       <div className="row">
                         <Link href={`https://xivapi.com/item/${item.id}`} className="tag" target="_blank">
@@ -608,7 +739,7 @@ export function SearchExperience() {
               <div className="subtle-card">
                 <strong>Location</strong>
                 <p className="muted" style={{ marginTop: '0.25rem' }}>
-                  {selectedItem.homeServer} • {selectedItem.dataCenter} ({selectedItem.region})
+                  {selectedItem.homeWorld ?? 'Unknown world'} • {selectedItem.dataCenter} ({selectedItem.region})
                 </p>
               </div>
               <div className="subtle-card">

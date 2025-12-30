@@ -1,143 +1,149 @@
-export type CraftItem = {
-  id: number;
-  name: string;
-  category: string;
-  job: 'DoH' | 'DoL' | 'Omni';
-  level: number;
-  stars: number;
-  yields: number;
-  isExpert: boolean;
-  homeServer: string;
-  region: string;
-  dataCenter: string;
-  marketPrice: number | null;
-  recentSalePrice: number | null;
-  materialCost: number | null;
-  marketPurchaseCost: number | null;
+import { recipes, RecipeDefinition, RecipeIngredient } from './recipes';
+
+export type PriceStats = {
+  average: number | null;
+  median: number | null;
+  minListing: number | null;
+  recentSaleVelocity: number | null;
+  lastUpload?: string;
+};
+
+export type IngredientMarket = RecipeIngredient & {
+  overridePrice?: number;
+  prices: {
+    home: PriceStats;
+    region: PriceStats;
+  };
+};
+
+export type RecipeMarket = RecipeDefinition & {
   universalisUrl: string;
+  ingredients: IngredientMarket[];
+  outputPrices: {
+    home: PriceStats;
+    region: PriceStats;
+  };
+  complexity: number;
+  timedNodeCount: number;
 };
 
 export type MarketSnapshotData = {
-  items: CraftItem[];
+  items: RecipeMarket[];
   capturedAt: string;
+  cacheMs: number;
+  source: 'universalis' | 'fallback';
 };
 
-export function baseMarketItems(): CraftItem[] {
-  return [
-    {
-      id: 1,
-      name: "Indagator's Alembic",
-      category: 'Alchemist',
-      job: 'DoH',
-      level: 90,
-      stars: 4,
-      yields: 1,
-      isExpert: false,
-      homeServer: 'Ravana',
-      region: 'Elemental',
-      dataCenter: 'Elemental',
-      marketPrice: 420000,
-      recentSalePrice: 398000,
-      materialCost: 215000,
-      marketPurchaseCost: 230000,
-      universalisUrl: 'https://universalis.app/market/indagators-alembic'
-    },
-    {
-      id: 2,
-      name: 'Resplendent Saw',
-      category: 'Carpenter',
-      job: 'Omni',
-      level: 90,
-      stars: 4,
-      yields: 1,
-      isExpert: true,
-      homeServer: 'Leviathan',
-      region: 'Primal',
-      dataCenter: 'Primal',
-      marketPrice: 915000,
-      recentSalePrice: 880000,
-      materialCost: 540000,
-      marketPurchaseCost: 600000,
-      universalisUrl: 'https://universalis.app/market/resplendent-saw'
-    },
-    {
-      id: 3,
-      name: 'Chondrite Ingot',
-      category: 'Blacksmith',
-      job: 'DoH',
-      level: 90,
-      stars: 2,
-      yields: 3,
-      isExpert: false,
-      homeServer: 'Balmung',
-      region: 'Crystal',
-      dataCenter: 'Crystal',
-      marketPrice: 18500,
-      recentSalePrice: 17000,
-      materialCost: 8900,
-      marketPurchaseCost: 9800,
-      universalisUrl: 'https://universalis.app/market/chondrite-ingot'
-    },
-    {
-      id: 4,
-      name: 'Rarefied Sykon Bavarois',
-      category: 'Culinarian',
-      job: 'DoH',
-      level: 80,
-      stars: 1,
-      yields: 3,
-      isExpert: false,
-      homeServer: 'Cerberus',
-      region: 'Chaos',
-      dataCenter: 'Chaos',
-      marketPrice: 3200,
-      recentSalePrice: 4100,
-      materialCost: 1500,
-      marketPurchaseCost: 2000,
-      universalisUrl: 'https://universalis.app/market/rarefied-sykon-bavarois'
-    },
-    {
-      id: 5,
-      name: 'Facet Miqote Halfrobe',
-      category: 'Weaver',
-      job: 'DoH',
-      level: 78,
-      stars: 0,
-      yields: 1,
-      isExpert: false,
-      homeServer: 'Gilgamesh',
-      region: 'Aether',
-      dataCenter: 'Aether',
-      marketPrice: 280000,
-      recentSalePrice: null,
-      materialCost: 162000,
-      marketPurchaseCost: 170000,
-      universalisUrl: 'https://universalis.app/market/facet-miqote-halfrobe'
-    },
-    {
-      id: 6,
-      name: 'Rarefied Titanoboa Skin',
-      category: 'Leatherworker',
-      job: 'DoH',
-      level: 72,
-      stars: 0,
-      yields: 1,
-      isExpert: false,
-      homeServer: 'Lich',
-      region: 'Light',
-      dataCenter: 'Light',
-      marketPrice: null,
-      recentSalePrice: 26000,
-      materialCost: 12000,
-      marketPurchaseCost: null,
-      universalisUrl: 'https://universalis.app/market/rarefied-titanoboa-skin'
-    }
-  ];
+const DEFAULT_CACHE_MS = 12 * 60 * 1000; // 12 minutes within 5-15 minute target
+
+let cachedSnapshot: { data: MarketSnapshotData; capturedAt: number } | null = null;
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-export function createSnapshotData(): MarketSnapshotData {
+async function fetchUniversalisPrice(location: string, itemId: number): Promise<PriceStats> {
+  const url = `https://universalis.app/api/v2/${encodeURIComponent(location)}/${itemId}?listings=10&entries=20`;
+  try {
+    const res = await fetch(url, { next: { revalidate: 0 } });
+    if (!res.ok) throw new Error(`Universalis status ${res.status}`);
+    const data = await res.json();
+    const history = Array.isArray(data.recentHistory) ? data.recentHistory : [];
+    const histPrices = history.map((h: any) => Number(h.pricePerUnit)).filter((v: number) => Number.isFinite(v));
+    const medianHistory = median(histPrices);
+    const averageHistory = histPrices.length
+      ? histPrices.reduce((sum: number, v: number) => sum + v, 0) / histPrices.length
+      : null;
+    const minListing = Array.isArray(data.listings) && data.listings.length
+      ? Number(data.listings[0].pricePerUnit)
+      : data.minPrice ?? null;
+    return {
+      average: data.averagePriceNQ ?? averageHistory,
+      median: data.median ?? medianHistory ?? data.averagePriceNQ ?? null,
+      minListing: Number.isFinite(minListing) ? Number(minListing) : null,
+      recentSaleVelocity: data.regularSaleVelocity ?? data.nqSaleVelocity ?? null,
+      lastUpload: data.lastUploadTime ? new Date(data.lastUploadTime).toISOString() : undefined
+    };
+  } catch (error) {
+    console.error(`Failed to fetch Universalis for ${itemId} @ ${location}:`, error);
+    return {
+      average: null,
+      median: null,
+      minListing: null,
+      recentSaleVelocity: null,
+      lastUpload: undefined
+    };
+  }
+}
+
+async function fetchPriceForLocations(itemId: number, home: string, region: string): Promise<{ home: PriceStats; region: PriceStats }> {
+  const [homePrices, regionPrices] = await Promise.all([
+    fetchUniversalisPrice(home, itemId),
+    fetchUniversalisPrice(region, itemId)
+  ]);
+
   return {
-    items: baseMarketItems(),
-    capturedAt: new Date().toISOString()
+    home: homePrices,
+    region: regionPrices
   };
+}
+
+async function priceRecipe(
+  recipe: RecipeDefinition,
+  locations: { homeWorld: string; region: string },
+  overrides?: Record<number, number>
+): Promise<RecipeMarket> {
+  const pricedIngredients: IngredientMarket[] = [];
+
+  for (const ing of recipe.ingredients) {
+    const prices = await fetchPriceForLocations(ing.itemId, locations.homeWorld, locations.region);
+    pricedIngredients.push({
+      ...ing,
+      overridePrice: overrides?.[ing.itemId],
+      prices
+    });
+  }
+
+  const outputPrices = await fetchPriceForLocations(recipe.outputItemId, locations.homeWorld, locations.region);
+
+  return {
+    ...recipe,
+    universalisUrl: `https://universalis.app/market/${recipe.universalisSlug ?? recipe.outputItemId}`,
+    ingredients: pricedIngredients,
+    outputPrices,
+    complexity: recipe.ingredients.length,
+    timedNodeCount: recipe.ingredients.filter((ing) => ing.timedNode).length
+  };
+}
+
+export async function captureMarketSnapshot(options?: {
+  homeWorld?: string;
+  region?: string;
+  cacheMs?: number;
+  forceRefresh?: boolean;
+  overrides?: Record<number, number>;
+}): Promise<MarketSnapshotData> {
+  const homeWorld = options?.homeWorld ?? 'Ravana';
+  const region = options?.region ?? 'Elemental';
+  const cacheMs = options?.cacheMs ?? DEFAULT_CACHE_MS;
+
+  if (!options?.forceRefresh && cachedSnapshot && Date.now() - cachedSnapshot.capturedAt < cacheMs) {
+    return cachedSnapshot.data;
+  }
+
+  const priced = await Promise.all(recipes.map((r) => priceRecipe(r, { homeWorld, region }, options?.overrides)));
+  const snapshot: MarketSnapshotData = {
+    items: priced,
+    capturedAt: new Date().toISOString(),
+    cacheMs,
+    source: priced.some((item) => item.outputPrices.home.average === null && item.outputPrices.region.average === null)
+      ? 'fallback'
+      : 'universalis'
+  };
+
+  cachedSnapshot = { data: snapshot, capturedAt: Date.now() };
+  return snapshot;
 }

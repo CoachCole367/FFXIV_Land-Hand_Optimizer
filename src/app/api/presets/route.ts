@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { createSnapshotData } from '@/lib/marketData';
+import { captureMarketSnapshot, MarketSnapshotData } from '@/lib/marketData';
 import { defaultSearchParameters, SearchParameters } from '@/lib/search';
 
 async function ensureSnapshot(snapshotId?: string) {
@@ -10,9 +10,14 @@ async function ensureSnapshot(snapshotId?: string) {
   }
 
   const latest = await prisma.marketSnapshot.findFirst({ orderBy: { createdAt: 'desc' } });
-  if (latest) return latest;
+  if (latest) {
+    const data = latest.data as MarketSnapshotData;
+    const capturedAt = data.capturedAt ? new Date(data.capturedAt).getTime() : latest.createdAt.getTime();
+    if (Date.now() - capturedAt < (data.cacheMs ?? 12 * 60 * 1000)) return latest;
+  }
 
-  return prisma.marketSnapshot.create({ data: { data: createSnapshotData() } });
+  const data = await captureMarketSnapshot();
+  return prisma.marketSnapshot.create({ data: { data } });
 }
 
 export async function GET(request: NextRequest) {
