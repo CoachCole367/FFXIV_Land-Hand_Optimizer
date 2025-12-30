@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { createSnapshotData } from '@/lib/marketData';
+import { captureMarketSnapshot } from '@/lib/marketData';
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
   const created = [] as any[];
   for (const preset of presets) {
     const snapshotData =
-      preset.snapshot?.data || preset.data || preset.parameters?.snapshotData || createSnapshotData();
+      preset.snapshot?.data || preset.data || preset.parameters?.snapshotData || (await captureMarketSnapshot());
     const snapshotId = preset.snapshotId ?? preset.snapshot?.id;
 
     const snapshot = snapshotId
