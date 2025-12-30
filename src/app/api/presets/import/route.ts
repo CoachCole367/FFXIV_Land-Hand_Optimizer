@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       data: {
         name: preset.name,
         description: preset.description ?? '',
-        tags: preset.tags ?? [],
+        tags: Array.isArray(preset.tags) ? (preset.tags as unknown[]).map((tag) => String(tag)) : [],
         isDefault: Boolean(preset.isDefault),
         parameters: preset.parameters,
         snapshotId: snapshot.id

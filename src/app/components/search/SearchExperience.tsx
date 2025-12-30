@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { RecipeMarket } from '@/lib/marketData';
 import { Financials, SearchParameters, defaultSearchParameters } from '@/lib/search';
+import { dataCentersForRegion, regionForDataCenter, regions, worldsForDataCenter } from '@/lib/servers';
 import { useAppSettings } from '../../providers/AppSettingsProvider';
 
 type SearchResult = {
@@ -89,6 +90,33 @@ export function SearchExperience() {
   const [presetDefault, setPresetDefault] = useState(false);
 
   const { compactTable } = useAppSettings();
+
+  const availableDataCenters = useMemo(() => dataCentersForRegion(region), [region]);
+  const availableWorlds = useMemo(() => worldsForDataCenter(dataCenter), [dataCenter]);
+
+  useEffect(() => {
+    if (dataCenter) {
+      const inferredRegion = regionForDataCenter(dataCenter);
+      if (inferredRegion && inferredRegion !== region) {
+        setRegion(inferredRegion);
+      }
+    }
+  }, [dataCenter, region]);
+
+  useEffect(() => {
+    const allowedDataCenters = dataCentersForRegion(region);
+    if (dataCenter && !allowedDataCenters.some((dc) => dc.name === dataCenter)) {
+      setDataCenter('');
+      setHomeServer('');
+    }
+  }, [dataCenter, region]);
+
+  useEffect(() => {
+    if (!homeServer) return;
+    if (dataCenter && !worldsForDataCenter(dataCenter).includes(homeServer)) {
+      setHomeServer('');
+    }
+  }, [homeServer, dataCenter]);
 
   const buildParameters = useCallback((): SearchParameters => {
     return {
@@ -355,15 +383,39 @@ export function SearchExperience() {
           </label>
           <label>
             Home server
-            <input placeholder="Ravana" value={homeServer} onChange={(e) => setHomeServer(e.target.value)} />
+            <select value={homeServer} onChange={(e) => setHomeServer(e.target.value)}>
+              <option value="">Any</option>
+              {availableWorlds.map((world) => (
+                <option key={world} value={world}>
+                  {world}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Region/DC
-            <input placeholder="Aether / Primal" value={region} onChange={(e) => setRegion(e.target.value)} />
+            <select value={region} onChange={(e) => setRegion(e.target.value)}>
+              <option value="">Any</option>
+              {regions.map((regionOption) => (
+                <option key={regionOption} value={regionOption}>
+                  {regionOption}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Data center
-            <input placeholder="Primal" value={dataCenter} onChange={(e) => setDataCenter(e.target.value)} />
+            <select
+              value={dataCenter}
+              onChange={(e) => setDataCenter(e.target.value)}
+            >
+              <option value="">Any</option>
+              {availableDataCenters.map((dc) => (
+                <option key={dc.name} value={dc.name}>
+                  {dc.name} ({dc.region})
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Cost mode
@@ -449,13 +501,14 @@ export function SearchExperience() {
                   </select>
                 </label>
                 <label>
-                  Minimum recent sales (gil)
+                  Minimum sales per week
                   <input
                     type="number"
                     min={0}
                     value={minSales}
                     onChange={(e) => setMinSales(Number(e.target.value))}
                   />
+                  <span className="muted">Filter by recent sale velocity (approx. per week).</span>
                 </label>
                 <label>
                   Minimum price per unit
