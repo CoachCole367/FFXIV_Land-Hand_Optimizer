@@ -1,0 +1,31 @@
+// Prisma schema for presets and market data snapshots
+// Uses SQLite for simplicity; swap provider to postgresql in production.
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model MarketSnapshot {
+  id        String    @id @default(cuid())
+  createdAt DateTime  @default(now())
+  note      String?
+  data      Json
+  presets   Preset[]
+}
+
+model Preset {
+  id          String          @id @default(cuid())
+  name        String
+  description String
+  tags        String[]
+  isDefault   Boolean         @default(false)
+  parameters  Json
+  snapshotId  String
+  snapshot    MarketSnapshot  @relation(fields: [snapshotId], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+}

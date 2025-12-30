@@ -1,221 +1,203 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { CraftItem } from '@/lib/marketData';
+import { Financials, SearchParameters, defaultSearchParameters } from '@/lib/search';
 import { useAppSettings } from '../../providers/AppSettingsProvider';
 
-type CostMode = 'materialAverage' | 'marketPurchase';
-type RevenueMode = 'recentSales' | 'marketBoard';
-
-type CraftItem = {
-  id: number;
-  name: string;
-  category: string;
-  job: 'DoH' | 'DoL' | 'Omni';
-  level: number;
-  stars: number;
-  yields: number;
-  isExpert: boolean;
-  homeServer: string;
-  region: string;
-  dataCenter: string;
-  marketPrice: number | null;
-  recentSalePrice: number | null;
-  materialCost: number | null;
-  marketPurchaseCost: number | null;
-  universalisUrl: string;
+type SearchResult = {
+  item: CraftItem;
+  financials: Financials;
 };
-
-const mockItems: CraftItem[] = [
-  {
-    id: 1,
-    name: 'Indagator\'s Alembic',
-    category: 'Alchemist',
-    job: 'DoH',
-    level: 90,
-    stars: 4,
-    yields: 1,
-    isExpert: false,
-    homeServer: 'Ravana',
-    region: 'Elemental',
-    dataCenter: 'Elemental',
-    marketPrice: 420000,
-    recentSalePrice: 398000,
-    materialCost: 215000,
-    marketPurchaseCost: 230000,
-    universalisUrl: 'https://universalis.app/market/indagators-alembic'
-  },
-  {
-    id: 2,
-    name: 'Resplendent Saw',
-    category: 'Carpenter',
-    job: 'Omni',
-    level: 90,
-    stars: 4,
-    yields: 1,
-    isExpert: true,
-    homeServer: 'Leviathan',
-    region: 'Primal',
-    dataCenter: 'Primal',
-    marketPrice: 915000,
-    recentSalePrice: 880000,
-    materialCost: 540000,
-    marketPurchaseCost: 600000,
-    universalisUrl: 'https://universalis.app/market/resplendent-saw'
-  },
-  {
-    id: 3,
-    name: 'Chondrite Ingot',
-    category: 'Blacksmith',
-    job: 'DoH',
-    level: 90,
-    stars: 2,
-    yields: 3,
-    isExpert: false,
-    homeServer: 'Balmung',
-    region: 'Crystal',
-    dataCenter: 'Crystal',
-    marketPrice: 18500,
-    recentSalePrice: 17000,
-    materialCost: 8900,
-    marketPurchaseCost: 9800,
-    universalisUrl: 'https://universalis.app/market/chondrite-ingot'
-  },
-  {
-    id: 4,
-    name: 'Rarefied Sykon Bavarois',
-    category: 'Culinarian',
-    job: 'DoH',
-    level: 80,
-    stars: 1,
-    yields: 3,
-    isExpert: false,
-    homeServer: 'Cerberus',
-    region: 'Chaos',
-    dataCenter: 'Chaos',
-    marketPrice: 3200,
-    recentSalePrice: 4100,
-    materialCost: 1500,
-    marketPurchaseCost: 2000,
-    universalisUrl: 'https://universalis.app/market/rarefied-sykon-bavarois'
-  },
-  {
-    id: 5,
-    name: 'Facet Miqote Halfrobe',
-    category: 'Weaver',
-    job: 'DoH',
-    level: 78,
-    stars: 0,
-    yields: 1,
-    isExpert: false,
-    homeServer: 'Gilgamesh',
-    region: 'Aether',
-    dataCenter: 'Aether',
-    marketPrice: 280000,
-    recentSalePrice: null,
-    materialCost: 162000,
-    marketPurchaseCost: 170000,
-    universalisUrl: 'https://universalis.app/market/facet-miqote-halfrobe'
-  },
-  {
-    id: 6,
-    name: 'Rarefied Titanoboa Skin',
-    category: 'Leatherworker',
-    job: 'DoH',
-    level: 72,
-    stars: 0,
-    yields: 1,
-    isExpert: false,
-    homeServer: 'Lich',
-    region: 'Light',
-    dataCenter: 'Light',
-    marketPrice: null,
-    recentSalePrice: 26000,
-    materialCost: 12000,
-    marketPurchaseCost: null,
-    universalisUrl: 'https://universalis.app/market/rarefied-titanoboa-skin'
-  }
-];
-
-type SortKey = 'name' | 'profit' | 'roi' | 'level' | 'stars' | 'yields';
-
-type Financials = {
-  revenue: number;
-  cost: number;
-  profit: number;
-  roi: number;
-  missing: string[];
-};
-
-function computeFinancials(item: CraftItem, costMode: CostMode, revenueMode: RevenueMode): Financials {
-  const revenueBase = revenueMode === 'recentSales' ? item.recentSalePrice : item.marketPrice;
-  const costBase = costMode === 'materialAverage' ? item.materialCost : item.marketPurchaseCost;
-  const missing: string[] = [];
-
-  if (revenueBase == null) missing.push('revenue');
-  if (costBase == null) missing.push('cost');
-
-  const revenue = (revenueBase ?? 0) * item.yields;
-  const cost = costBase ?? 0;
-  const profit = revenue - cost;
-  const roi = cost > 0 ? profit / cost : 0;
-
-  return { revenue, cost, profit, roi, missing };
-}
 
 function formatGil(value: number) {
   return value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
 export function SearchExperience() {
-  const [query, setQuery] = useState('');
-  const [homeServer, setHomeServer] = useState('');
-  const [region, setRegion] = useState('');
-  const [dataCenter, setDataCenter] = useState('');
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [jobFilter, setJobFilter] = useState<'any' | 'DoH' | 'Omni'>('any');
-  const [minSales, setMinSales] = useState(0);
-  const [minPrice, setMinPrice] = useState(0);
-  const [minProfit, setMinProfit] = useState(0);
-  const [minYield, setMinYield] = useState(1);
-  const [starLimit, setStarLimit] = useState(0);
-  const [levelRange, setLevelRange] = useState<[number, number]>([50, 100]);
-  const [expertOnly, setExpertOnly] = useState(false);
-  const [costMode, setCostMode] = useState<CostMode>('materialAverage');
-  const [revenueMode, setRevenueMode] = useState<RevenueMode>('recentSales');
-  const [sortKey, setSortKey] = useState<SortKey>('profit');
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc');
+  const searchParams = useSearchParams();
+
+  const [query, setQuery] = useState(defaultSearchParameters.query);
+  const [homeServer, setHomeServer] = useState(defaultSearchParameters.homeServer);
+  const [region, setRegion] = useState(defaultSearchParameters.region);
+  const [dataCenter, setDataCenter] = useState(defaultSearchParameters.dataCenter);
+  const [selectedCategories, setSelectedCategories] = useState<string[]>(defaultSearchParameters.categories);
+  const [jobFilter, setJobFilter] = useState<SearchParameters['jobFilter']>(defaultSearchParameters.jobFilter);
+  const [minSales, setMinSales] = useState(defaultSearchParameters.minSales);
+  const [minPrice, setMinPrice] = useState(defaultSearchParameters.minPrice);
+  const [minProfit, setMinProfit] = useState(defaultSearchParameters.minProfit);
+  const [minYield, setMinYield] = useState(defaultSearchParameters.minYield);
+  const [starLimit, setStarLimit] = useState(defaultSearchParameters.starLimit);
+  const [levelRange, setLevelRange] = useState<[number, number]>(defaultSearchParameters.levelRange);
+  const [expertOnly, setExpertOnly] = useState(defaultSearchParameters.expertOnly);
+  const [costMode, setCostMode] = useState<SearchParameters['costMode']>(defaultSearchParameters.costMode);
+  const [revenueMode, setRevenueMode] = useState<SearchParameters['revenueMode']>(defaultSearchParameters.revenueMode);
+  const [sortKey, setSortKey] = useState<SearchParameters['sortKey']>(defaultSearchParameters.sortKey);
+  const [sortDir, setSortDir] = useState<SearchParameters['sortDir']>(defaultSearchParameters.sortDir);
   const [page, setPage] = useState(1);
   const [showAdvanced, setShowAdvanced] = useState(true);
   const [selectedItem, setSelectedItem] = useState<CraftItem | null>(null);
-  const [onlyOmnicrafterFriendly, setOnlyOmnicrafterFriendly] = useState(false);
+  const [onlyOmnicrafterFriendly, setOnlyOmnicrafterFriendly] = useState(
+    defaultSearchParameters.onlyOmnicrafterFriendly
+  );
+  const [availableCategories, setAvailableCategories] = useState<string[]>([]);
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [snapshotId, setSnapshotId] = useState<string | null>(null);
+  const [capturedAt, setCapturedAt] = useState<string | null>(null);
+  const [isSearching, setIsSearching] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [isHydratingPreset, setIsHydratingPreset] = useState(false);
+  const [activePresetId, setActivePresetId] = useState<string | null>(null);
+
+  const [presetName, setPresetName] = useState('');
+  const [presetDescription, setPresetDescription] = useState('');
+  const [presetTags, setPresetTags] = useState('');
+  const [presetDefault, setPresetDefault] = useState(false);
 
   const { compactTable } = useAppSettings();
 
-  const categories = useMemo(() => Array.from(new Set(mockItems.map((item) => item.category))).sort(), []);
+  const buildParameters = useCallback((): SearchParameters => {
+    return {
+      query,
+      homeServer,
+      region,
+      dataCenter,
+      categories: selectedCategories,
+      jobFilter,
+      minSales,
+      minPrice,
+      minProfit,
+      minYield,
+      starLimit,
+      levelRange,
+      expertOnly,
+      onlyOmnicrafterFriendly,
+      costMode,
+      revenueMode,
+      sortKey,
+      sortDir
+    };
+  }, [
+    costMode,
+    dataCenter,
+    homeServer,
+    jobFilter,
+    minPrice,
+    minProfit,
+    minSales,
+    minYield,
+    query,
+    region,
+    revenueMode,
+    selectedCategories,
+    sortDir,
+    sortKey,
+    starLimit,
+    levelRange,
+    expertOnly,
+    onlyOmnicrafterFriendly
+  ]);
 
-  const filteredItems = useMemo(() => {
-    const lowerQuery = query.trim().toLowerCase();
+  const applyParameters = useCallback(
+    (parameters: SearchParameters) => {
+      setQuery(parameters.query);
+      setHomeServer(parameters.homeServer);
+      setRegion(parameters.region);
+      setDataCenter(parameters.dataCenter);
+      setSelectedCategories(parameters.categories);
+      setJobFilter(parameters.jobFilter);
+      setMinSales(parameters.minSales);
+      setMinPrice(parameters.minPrice);
+      setMinProfit(parameters.minProfit);
+      setMinYield(parameters.minYield);
+      setStarLimit(parameters.starLimit);
+      setLevelRange(parameters.levelRange);
+      setExpertOnly(parameters.expertOnly);
+      setOnlyOmnicrafterFriendly(parameters.onlyOmnicrafterFriendly);
+      setCostMode(parameters.costMode);
+      setRevenueMode(parameters.revenueMode);
+      setSortKey(parameters.sortKey);
+      setSortDir(parameters.sortDir);
+    },
+    []
+  );
 
-    return mockItems
-      .filter((item) => (!lowerQuery ? true : item.name.toLowerCase().includes(lowerQuery)))
-      .filter((item) => (!homeServer ? true : item.homeServer.toLowerCase().includes(homeServer.toLowerCase())))
-      .filter((item) => (!region ? true : item.region.toLowerCase().includes(region.toLowerCase())))
-      .filter((item) => (!dataCenter ? true : item.dataCenter.toLowerCase().includes(dataCenter.toLowerCase())))
-      .filter((item) => (selectedCategories.length === 0 ? true : selectedCategories.includes(item.category)))
-      .filter((item) => (jobFilter === 'any' ? true : item.job === jobFilter || (jobFilter === 'Omni' && item.job === 'Omni')))
-      .filter((item) => (expertOnly ? item.isExpert : true))
-      .filter((item) => item.yields >= minYield)
-      .filter((item) => item.stars >= starLimit)
-      .filter((item) => item.level >= levelRange[0] && item.level <= levelRange[1])
-      .filter((item) => (onlyOmnicrafterFriendly ? item.job === 'Omni' : true))
-      .filter((item) => {
-        const { revenue, cost, profit } = computeFinancials(item, costMode, revenueMode);
-        const meetsSales = revenue >= minSales;
-        const meetsPrice = (revenue / Math.max(item.yields, 1)) >= minPrice;
-        const meetsProfit = profit >= minProfit;
-        return meetsSales && meetsPrice && meetsProfit;
+  const toggleSort = (key: SearchParameters['sortKey']) => {
+    if (sortKey === key) {
+      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('desc');
+    }
+  };
+
+  const runSearch = useCallback(
+    async (parameters?: SearchParameters, snapshotOverride?: string | null) => {
+      setIsSearching(true);
+      const res = await fetch('/api/search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          parameters: parameters ?? buildParameters(),
+          snapshotId: snapshotOverride ?? snapshotId
+        })
       });
+
+      if (!res.ok) {
+        setMessage('Failed to refresh search results.');
+        setIsSearching(false);
+        return;
+      }
+
+      const data = await res.json();
+      setResults(data.results ?? []);
+      setAvailableCategories(data.availableCategories ?? []);
+      setSnapshotId(data.snapshotId);
+      setCapturedAt(data.capturedAt ?? null);
+      setIsSearching(false);
+    },
+    [buildParameters, snapshotId]
+  );
+
+  const loadPreset = useCallback(
+    async (id: string) => {
+      setIsHydratingPreset(true);
+      const res = await fetch(`/api/presets/${id}`);
+      if (!res.ok) {
+        setMessage('Failed to hydrate preset.');
+        setIsHydratingPreset(false);
+        return;
+      }
+
+      const data = await res.json();
+      const parameters = data.parameters as SearchParameters;
+      applyParameters(parameters);
+      setResults(data.results ?? []);
+      setAvailableCategories(data.availableCategories ?? []);
+      setSnapshotId(data.snapshotId ?? null);
+      setCapturedAt(data.capturedAt ?? null);
+      setPage(1);
+      setActivePresetId(id);
+      setIsHydratingPreset(false);
+    },
+    [applyParameters]
+  );
+
+  useEffect(() => {
+    const presetId = searchParams.get('presetId');
+    if (presetId) {
+      loadPreset(presetId);
+    } else {
+      runSearch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (isHydratingPreset) return;
+    runSearch();
   }, [
     query,
     homeServer,
@@ -232,40 +214,61 @@ export function SearchExperience() {
     minPrice,
     minProfit,
     costMode,
-    revenueMode
+    revenueMode,
+    sortKey,
+    sortDir,
+    isHydratingPreset,
+    runSearch
   ]);
 
-  const sortedItems = useMemo(() => {
-    return [...filteredItems].sort((a, b) => {
-      const fa = computeFinancials(a, costMode, revenueMode);
-      const fb = computeFinancials(b, costMode, revenueMode);
-
-      const selectors: Record<SortKey, number> = {
-        name: a.name.localeCompare(b.name),
-        profit: fa.profit - fb.profit,
-        roi: fa.roi - fb.roi,
-        level: a.level - b.level,
-        stars: a.stars - b.stars,
-        yields: a.yields - b.yields
-      } as const;
-
-      const value = sortKey === 'name' ? selectors.name : selectors[sortKey];
-      return sortDir === 'asc' ? value : value * -1;
-    });
-  }, [filteredItems, sortKey, sortDir, costMode, revenueMode]);
-
   const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(sortedItems.length / pageSize));
-  const pagedItems = sortedItems.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
+  const pagedItems = results.slice((page - 1) * pageSize, page * pageSize);
 
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) {
-      setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
-    } else {
-      setSortKey(key);
-      setSortDir('desc');
-    }
+  const clearPresetForm = () => {
+    setPresetName('');
+    setPresetDescription('');
+    setPresetTags('');
+    setPresetDefault(false);
   };
+
+  const savePreset = async () => {
+    const payload = {
+      name: presetName || 'Untitled preset',
+      description: presetDescription,
+      tags: presetTags
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean),
+      isDefault: presetDefault,
+      parameters: buildParameters(),
+      snapshotId
+    };
+
+    const res = await fetch('/api/presets', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      setMessage('Unable to save preset.');
+      return;
+    }
+
+    setMessage('Preset saved. Copy the share link from the Presets page.');
+    clearPresetForm();
+  };
+
+  const summaryText = useMemo(() => {
+    if (activePresetId) {
+      return `Hydrated from preset ${activePresetId}`;
+    }
+    if (snapshotId) {
+      return `Snapshot ${snapshotId.slice(0, 8)}…`;
+    }
+    return 'Live search';
+  }, [activePresetId, snapshotId]);
 
   return (
     <div className="grid" style={{ gap: '1rem' }}>
@@ -274,6 +277,10 @@ export function SearchExperience() {
           <div>
             <h2 className="section-title">Craftsim Search</h2>
             <p className="muted">Search by server, filters, and profitability with ROI calculations that respect yields.</p>
+            <p className="muted" style={{ marginTop: '0.35rem' }}>
+              {summaryText}
+              {capturedAt && ` • Snapshot captured ${new Date(capturedAt).toLocaleString()}`}
+            </p>
           </div>
           <button className="ghost" onClick={() => setShowAdvanced((prev) => !prev)}>
             {showAdvanced ? 'Hide advanced filters' : 'Show advanced filters'}
@@ -299,14 +306,14 @@ export function SearchExperience() {
           </label>
           <label>
             Cost mode
-            <select value={costMode} onChange={(e) => setCostMode(e.target.value as CostMode)}>
+            <select value={costMode} onChange={(e) => setCostMode(e.target.value as SearchParameters['costMode'])}>
               <option value="materialAverage">Material average (Craftsim)</option>
               <option value="marketPurchase">Market purchase</option>
             </select>
           </label>
           <label>
             Revenue mode
-            <select value={revenueMode} onChange={(e) => setRevenueMode(e.target.value as RevenueMode)}>
+            <select value={revenueMode} onChange={(e) => setRevenueMode(e.target.value as SearchParameters['revenueMode'])}>
               <option value="recentSales">Recent sales</option>
               <option value="marketBoard">Market board listings</option>
             </select>
@@ -339,12 +346,10 @@ export function SearchExperience() {
                   <select
                     multiple
                     value={selectedCategories}
-                    onChange={(e) =>
-                      setSelectedCategories(Array.from(e.target.selectedOptions).map((opt) => opt.value))
-                    }
+                    onChange={(e) => setSelectedCategories(Array.from(e.target.selectedOptions).map((opt) => opt.value))}
                     style={{ minHeight: '120px' }}
                   >
-                    {categories.map((cat) => (
+                    {availableCategories.map((cat) => (
                       <option key={cat} value={cat}>
                         {cat}
                       </option>
@@ -379,12 +384,7 @@ export function SearchExperience() {
                 </label>
                 <label>
                   Minimum profit
-                  <input
-                    type="number"
-                    min={0}
-                    value={minProfit}
-                    onChange={(e) => setMinProfit(Number(e.target.value))}
-                  />
+                  <input type="number" min={0} value={minProfit} onChange={(e) => setMinProfit(Number(e.target.value))} />
                 </label>
                 <label>
                   Minimum yields per craft
@@ -433,14 +433,15 @@ export function SearchExperience() {
       </div>
 
       <div className="panel">
-        <div className="row" style={{ justifyContent: 'space-between' }}>
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h3 style={{ margin: 0 }}>Results ({filteredItems.length})</h3>
+            <h3 style={{ margin: 0 }}>Results ({results.length})</h3>
             <p className="muted" style={{ marginTop: '0.25rem' }}>
               Sorting by {sortKey} ({sortDir}). Profit and ROI respect yields and cost/revenue modes.
             </p>
+            {message && <p className="muted">{message}</p>}
           </div>
-          <div className="row">
+          <div className="row" style={{ gap: '0.5rem' }}>
             <label className="switch">
               <input
                 type="checkbox"
@@ -449,6 +450,7 @@ export function SearchExperience() {
               />
               <span>Ascending</span>
             </label>
+            <button className="ghost" onClick={() => runSearch()}>Refresh with snapshot</button>
           </div>
         </div>
 
@@ -468,8 +470,7 @@ export function SearchExperience() {
               </tr>
             </thead>
             <tbody>
-              {pagedItems.map((item) => {
-                const financials = computeFinancials(item, costMode, revenueMode);
+              {pagedItems.map(({ item, financials }) => {
                 const warnings = financials.missing;
                 return (
                   <tr key={item.id}>
@@ -507,9 +508,7 @@ export function SearchExperience() {
                         {formatGil(financials.profit)} gil
                       </span>
                     </td>
-                    <td>
-                      {Number.isFinite(financials.roi) ? `${(financials.roi * 100).toFixed(1)}%` : '—'}
-                    </td>
+                    <td>{Number.isFinite(financials.roi) ? `${(financials.roi * 100).toFixed(1)}%` : '—'}</td>
                     <td>
                       <div className="row">
                         <Link href={`https://xivapi.com/item/${item.id}`} className="tag" target="_blank">
@@ -533,8 +532,10 @@ export function SearchExperience() {
           </table>
         </div>
 
-        <div className="row" style={{ marginTop: '0.75rem', justifyContent: 'space-between' }}>
-          <div className="muted">Showing {pagedItems.length} of {filteredItems.length} entries</div>
+        <div className="row" style={{ marginTop: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="muted">
+            Showing {pagedItems.length} of {results.length} entries {isSearching && '(refreshing…)'}
+          </div>
           <div className="pagination">
             <button className="ghost" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
               Prev
@@ -542,15 +543,50 @@ export function SearchExperience() {
             <span>
               Page {page} / {totalPages}
             </span>
-            <button
-              className="ghost"
-              disabled={page === totalPages}
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            >
+            <button className="ghost" disabled={page === totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
               Next
             </button>
           </div>
         </div>
+      </div>
+
+      <div className="panel">
+        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h3 style={{ margin: 0 }}>Save current search as preset</h3>
+            <p className="muted" style={{ marginTop: '0.25rem' }}>
+              Presets store parameters and the market snapshot so the shareable link replays identical results.
+            </p>
+          </div>
+          <Link className="tag" href="/presets">
+            Manage presets
+          </Link>
+        </div>
+        <div className="input-grid" style={{ marginTop: '0.5rem' }}>
+          <label>
+            Name
+            <input value={presetName} onChange={(e) => setPresetName(e.target.value)} placeholder="Raid consumables" />
+          </label>
+          <label>
+            Description
+            <input
+              value={presetDescription}
+              onChange={(e) => setPresetDescription(e.target.value)}
+              placeholder="Culinarian HQ foods sorted by ROI"
+            />
+          </label>
+          <label>
+            Tags (comma separated)
+            <input value={presetTags} onChange={(e) => setPresetTags(e.target.value)} placeholder="recent sales,omnicrafter" />
+          </label>
+          <label className="switch" style={{ alignSelf: 'flex-end' }}>
+            <input type="checkbox" checked={presetDefault} onChange={(e) => setPresetDefault(e.target.checked)} />
+            <span>Mark as default preset</span>
+          </label>
+        </div>
+        <button className="ghost" onClick={savePreset} style={{ marginTop: '0.5rem' }}>
+          Save preset with snapshot
+        </button>
       </div>
 
       {selectedItem && (
