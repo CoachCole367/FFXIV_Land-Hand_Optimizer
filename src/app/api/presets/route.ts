@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { captureMarketSnapshot, MarketSnapshotData } from '@/lib/marketData';
 import { defaultSearchParameters, SearchParameters } from '@/lib/search';
+import { builtinPresets } from '@/lib/builtinPresets';
 
 async function ensureSnapshot(snapshotId?: string) {
   if (snapshotId) {
@@ -20,8 +21,29 @@ async function ensureSnapshot(snapshotId?: string) {
   return prisma.marketSnapshot.create({ data: { data } });
 }
 
+async function ensureBuiltinPresets() {
+  const existing = await prisma.preset.findMany({ where: { name: { in: builtinPresets.map((p) => p.name) } } });
+  const existingNames = new Set(existing.map((preset) => preset.name));
+  const snapshot = await ensureSnapshot();
+
+  for (const preset of builtinPresets) {
+    if (existingNames.has(preset.name)) continue;
+    await prisma.preset.create({
+      data: {
+        name: preset.name,
+        description: preset.description,
+        tags: preset.tags,
+        isDefault: Boolean(preset.isDefault),
+        parameters: preset.parameters as SearchParameters,
+        snapshotId: snapshot.id
+      }
+    });
+  }
+}
+
 export async function GET(request: NextRequest) {
   const includeParameters = request.nextUrl.searchParams.get('includeParameters') === 'true';
+  await ensureBuiltinPresets();
   const presets = await prisma.preset.findMany({
     orderBy: { createdAt: 'desc' },
     include: { snapshot: true }
@@ -29,6 +51,7 @@ export async function GET(request: NextRequest) {
 
   const sanitized = presets.map((preset) => ({
     ...preset,
+    tags: Array.isArray(preset.tags) ? preset.tags.map((tag) => String(tag)) : [],
     parameters: includeParameters ? preset.parameters : undefined
   }));
 
@@ -52,7 +75,7 @@ export async function POST(request: NextRequest) {
     data: {
       name: body.name,
       description: body.description ?? '',
-      tags: (body.tags as string[]) ?? [],
+      tags: Array.isArray(body.tags) ? (body.tags as unknown[]).map((tag) => String(tag)) : [],
       isDefault: Boolean(body.isDefault),
       parameters,
       snapshotId: snapshot.id

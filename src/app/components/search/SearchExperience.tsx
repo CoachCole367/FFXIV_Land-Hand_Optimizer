@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { RecipeMarket } from '@/lib/marketData';
 import { Financials, SearchParameters, defaultSearchParameters } from '@/lib/search';
+import { dataCenters, regionForDataCenter, worldsForDataCenter } from '@/lib/servers';
 import { useAppSettings } from '../../providers/AppSettingsProvider';
 
 type SearchResult = {
@@ -43,7 +44,6 @@ export function SearchExperience() {
 
   const [query, setQuery] = useState(defaultSearchParameters.query);
   const [homeServer, setHomeServer] = useState(defaultSearchParameters.homeServer);
-  const [region, setRegion] = useState(defaultSearchParameters.region);
   const [dataCenter, setDataCenter] = useState(defaultSearchParameters.dataCenter);
   const [selectedCategories, setSelectedCategories] = useState<string[]>(defaultSearchParameters.categories);
   const [jobFilter, setJobFilter] = useState<SearchParameters['jobFilter']>(defaultSearchParameters.jobFilter);
@@ -82,6 +82,7 @@ export function SearchExperience() {
   );
   const [priceOverridesText, setPriceOverridesText] = useState('');
   const [maxTimeToSell, setMaxTimeToSell] = useState(defaultSearchParameters.maxTimeToSell);
+  const [hideIncomplete, setHideIncomplete] = useState(false);
 
   const [presetName, setPresetName] = useState('');
   const [presetDescription, setPresetDescription] = useState('');
@@ -90,11 +91,21 @@ export function SearchExperience() {
 
   const { compactTable } = useAppSettings();
 
+  const availableDataCenters = useMemo(() => dataCenters, []);
+  const availableWorlds = useMemo(() => (dataCenter ? worldsForDataCenter(dataCenter) : []), [dataCenter]);
+
+  useEffect(() => {
+    if (!homeServer) return;
+    if (dataCenter && !worldsForDataCenter(dataCenter).includes(homeServer)) {
+      setHomeServer('');
+    }
+  }, [homeServer, dataCenter]);
+
   const buildParameters = useCallback((): SearchParameters => {
     return {
       query,
       homeServer,
-      region,
+      region: regionForDataCenter(dataCenter) || '',
       dataCenter,
       categories: selectedCategories,
       jobFilter,
@@ -132,7 +143,6 @@ export function SearchExperience() {
     minYield,
     priceOverridesText,
     query,
-    region,
     revenueMode,
     selectedCategories,
     sortDir,
@@ -144,39 +154,35 @@ export function SearchExperience() {
     timedNodeOnly
   ]);
 
-  const applyParameters = useCallback(
-    (parameters: SearchParameters) => {
-      setQuery(parameters.query);
-      setHomeServer(parameters.homeServer);
-      setRegion(parameters.region);
-      setDataCenter(parameters.dataCenter);
-      setSelectedCategories(parameters.categories);
-      setJobFilter(parameters.jobFilter);
-      setMinSales(parameters.minSales);
-      setMinPrice(parameters.minPrice);
-      setMinProfit(parameters.minProfit);
-      setMinYield(parameters.minYield);
-      setStarLimit(parameters.starLimit);
-      setLevelRange(parameters.levelRange);
-      setExpertOnly(parameters.expertOnly);
-      setOnlyOmnicrafterFriendly(parameters.onlyOmnicrafterFriendly);
-      setTimedNodeOnly(parameters.timedNodeOnly);
-      setMaxComplexity(parameters.maxComplexity);
-      setCostMode(parameters.costMode);
-      setRevenueMode(parameters.revenueMode);
-      setBlendedListingWeight(parameters.blendedListingWeight);
-      setIncludeVendorPrices(parameters.includeVendorPrices);
-      setPriceOverridesText(
-        Object.entries(parameters.priceOverrides || {})
-          .map(([id, price]) => `${id}=${price}`)
-          .join(', ')
-      );
-      setMaxTimeToSell(parameters.maxTimeToSell);
-      setSortKey(parameters.sortKey);
-      setSortDir(parameters.sortDir);
-    },
-    []
-  );
+  const applyParameters = useCallback((parameters: SearchParameters) => {
+    setQuery(parameters.query);
+    setHomeServer(parameters.homeServer);
+    setDataCenter(parameters.dataCenter);
+    setSelectedCategories(parameters.categories);
+    setJobFilter(parameters.jobFilter);
+    setMinSales(parameters.minSales);
+    setMinPrice(parameters.minPrice);
+    setMinProfit(parameters.minProfit);
+    setMinYield(parameters.minYield);
+    setStarLimit(parameters.starLimit);
+    setLevelRange(parameters.levelRange);
+    setExpertOnly(parameters.expertOnly);
+    setOnlyOmnicrafterFriendly(parameters.onlyOmnicrafterFriendly);
+    setTimedNodeOnly(parameters.timedNodeOnly);
+    setMaxComplexity(parameters.maxComplexity);
+    setCostMode(parameters.costMode);
+    setRevenueMode(parameters.revenueMode);
+    setBlendedListingWeight(parameters.blendedListingWeight);
+    setIncludeVendorPrices(parameters.includeVendorPrices);
+    setPriceOverridesText(
+      Object.entries(parameters.priceOverrides || {})
+        .map(([id, price]) => `${id}=${price}`)
+        .join(', ')
+    );
+    setMaxTimeToSell(parameters.maxTimeToSell);
+    setSortKey(parameters.sortKey);
+    setSortDir(parameters.sortDir);
+  }, []);
 
   const toggleSort = (key: SearchParameters['sortKey']) => {
     if (sortKey === key) {
@@ -256,7 +262,6 @@ export function SearchExperience() {
   }, [
     query,
     homeServer,
-    region,
     dataCenter,
     selectedCategories,
     jobFilter,
@@ -283,8 +288,12 @@ export function SearchExperience() {
   ]);
 
   const pageSize = 10;
-  const totalPages = Math.max(1, Math.ceil(results.length / pageSize));
-  const pagedItems = results.slice((page - 1) * pageSize, page * pageSize);
+  const visibleResults = useMemo(
+    () => (hideIncomplete ? results.filter((entry) => entry.financials.missing.length === 0) : results),
+    [results, hideIncomplete]
+  );
+  const totalPages = Math.max(1, Math.ceil(visibleResults.length / pageSize));
+  const pagedItems = visibleResults.slice((page - 1) * pageSize, page * pageSize);
 
   const clearPresetForm = () => {
     setPresetName('');
@@ -354,16 +363,33 @@ export function SearchExperience() {
             <input placeholder="Item name, ingredient, etc." value={query} onChange={(e) => setQuery(e.target.value)} />
           </label>
           <label>
-            Home server
-            <input placeholder="Ravana" value={homeServer} onChange={(e) => setHomeServer(e.target.value)} />
-          </label>
-          <label>
-            Region/DC
-            <input placeholder="Aether / Primal" value={region} onChange={(e) => setRegion(e.target.value)} />
-          </label>
-          <label>
             Data center
-            <input placeholder="Primal" value={dataCenter} onChange={(e) => setDataCenter(e.target.value)} />
+            <select
+              value={dataCenter}
+              onChange={(e) => setDataCenter(e.target.value)}
+            >
+              <option value="">Any</option>
+              {availableDataCenters.map((dc) => (
+                <option key={dc.name} value={dc.name}>
+                  {dc.name} ({dc.region})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Home server
+            <select
+              value={homeServer}
+              onChange={(e) => setHomeServer(e.target.value)}
+              disabled={!dataCenter}
+            >
+              <option value="">{dataCenter ? 'Any' : 'Select a data center first'}</option>
+              {availableWorlds.map((world) => (
+                <option key={world} value={world}>
+                  {world}
+                </option>
+              ))}
+            </select>
           </label>
           <label>
             Cost mode
@@ -449,13 +475,14 @@ export function SearchExperience() {
                   </select>
                 </label>
                 <label>
-                  Minimum recent sales (gil)
+                  Minimum sales per week
                   <input
                     type="number"
                     min={0}
                     value={minSales}
                     onChange={(e) => setMinSales(Number(e.target.value))}
                   />
+                  <span className="muted">Filter by recent sale velocity (approx. per week).</span>
                 </label>
                 <label>
                   Minimum price per unit
@@ -553,13 +580,24 @@ export function SearchExperience() {
       <div className="panel">
         <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h3 style={{ margin: 0 }}>Results ({results.length})</h3>
+            <h3 style={{ margin: 0 }}>
+              Results ({visibleResults.length}
+              {hideIncomplete ? ` / ${results.length}` : ''})
+            </h3>
             <p className="muted" style={{ marginTop: '0.25rem' }}>
               Sorting by {sortKey} ({sortDir}). Profit and ROI respect yields and cost/revenue modes.
             </p>
             {message && <p className="muted">{message}</p>}
           </div>
           <div className="row" style={{ gap: '0.5rem' }}>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={hideIncomplete}
+                onChange={(e) => setHideIncomplete(e.target.checked)}
+              />
+              <span>Hide rows with missing prices</span>
+            </label>
             <label className="switch">
               <input
                 type="checkbox"
@@ -665,7 +703,7 @@ export function SearchExperience() {
 
         <div className="row" style={{ marginTop: '0.75rem', justifyContent: 'space-between', alignItems: 'center' }}>
           <div className="muted">
-            Showing {pagedItems.length} of {results.length} entries {isSearching && '(refreshing…)'}
+            Showing {pagedItems.length} of {visibleResults.length} entries {isSearching && '(refreshing…)'}
           </div>
           <div className="pagination">
             <button className="ghost" disabled={page === 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
