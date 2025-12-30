@@ -1,6 +1,6 @@
 import { MarketSnapshot, Preset } from '@prisma/client';
 import { MarketSnapshotData, RecipeMarket } from './marketData';
-import { dataCentersForRegion } from './servers';
+import { dataCentersForRegion, regionForDataCenter } from './servers';
 
 export type CostMode = 'regionalMedian' | 'regionalAverage' | 'minListing' | 'blended';
 export type RevenueMode = 'homeMin' | 'regionalMin' | 'regionalMedian' | 'regionalAverage';
@@ -9,7 +9,7 @@ export type SortKey = 'name' | 'profit' | 'roi' | 'level' | 'stars' | 'yields' |
 export type SearchParameters = {
   query: string;
   homeServer: string;
-  region: string;
+  region?: string;
   dataCenter: string;
   categories: string[];
   jobFilter: 'any' | 'DoH' | 'Omni';
@@ -125,7 +125,8 @@ export function runSearch(
   const lowerQuery = parameters.query.trim().toLowerCase();
   const availableCategories = Array.from(new Set(items.map((item) => item.category))).sort();
 
-  const regionDataCenters = dataCentersForRegion(parameters.region).map((dc) => dc.name.toLowerCase());
+  const derivedRegion = parameters.region ?? regionForDataCenter(parameters.dataCenter) ?? '';
+  const regionDataCenters = dataCentersForRegion(derivedRegion).map((dc) => dc.name.toLowerCase());
 
   const withFinancials = items.map((item) => ({
     item,
@@ -138,9 +139,9 @@ export function runSearch(
       !parameters.homeServer ? true : (item.homeWorld ?? '').toLowerCase().includes(parameters.homeServer.toLowerCase())
     )
     .filter(({ item }) => {
-      if (!parameters.region) return true;
+      if (!derivedRegion) return true;
       const candidate = (item.region ?? '').toLowerCase();
-      if (candidate.includes(parameters.region.toLowerCase())) return true;
+      if (candidate.includes(derivedRegion.toLowerCase())) return true;
       return regionDataCenters.some((dc) => candidate.includes(dc));
     })
     .filter(({ item }) =>
@@ -189,7 +190,6 @@ export function runSearch(
 export const defaultSearchParameters: SearchParameters = {
   query: '',
   homeServer: '',
-  region: '',
   dataCenter: '',
   categories: [],
   jobFilter: 'any',

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { RecipeMarket } from '@/lib/marketData';
 import { Financials, SearchParameters, defaultSearchParameters } from '@/lib/search';
-import { dataCentersForRegion, regionForDataCenter, regions, worldsForDataCenter } from '@/lib/servers';
+import { dataCenters, regionForDataCenter, worldsForDataCenter } from '@/lib/servers';
 import { useAppSettings } from '../../providers/AppSettingsProvider';
 
 type SearchResult = {
@@ -44,7 +44,6 @@ export function SearchExperience() {
 
   const [query, setQuery] = useState(defaultSearchParameters.query);
   const [homeServer, setHomeServer] = useState(defaultSearchParameters.homeServer);
-  const [region, setRegion] = useState(defaultSearchParameters.region);
   const [dataCenter, setDataCenter] = useState(defaultSearchParameters.dataCenter);
   const [selectedCategories, setSelectedCategories] = useState<string[]>(defaultSearchParameters.categories);
   const [jobFilter, setJobFilter] = useState<SearchParameters['jobFilter']>(defaultSearchParameters.jobFilter);
@@ -91,25 +90,8 @@ export function SearchExperience() {
 
   const { compactTable } = useAppSettings();
 
-  const availableDataCenters = useMemo(() => dataCentersForRegion(region), [region]);
-  const availableWorlds = useMemo(() => worldsForDataCenter(dataCenter), [dataCenter]);
-
-  useEffect(() => {
-    if (dataCenter) {
-      const inferredRegion = regionForDataCenter(dataCenter);
-      if (inferredRegion && inferredRegion !== region) {
-        setRegion(inferredRegion);
-      }
-    }
-  }, [dataCenter, region]);
-
-  useEffect(() => {
-    const allowedDataCenters = dataCentersForRegion(region);
-    if (dataCenter && !allowedDataCenters.some((dc) => dc.name === dataCenter)) {
-      setDataCenter('');
-      setHomeServer('');
-    }
-  }, [dataCenter, region]);
+  const availableDataCenters = useMemo(() => dataCenters, []);
+  const availableWorlds = useMemo(() => (dataCenter ? worldsForDataCenter(dataCenter) : []), [dataCenter]);
 
   useEffect(() => {
     if (!homeServer) return;
@@ -122,7 +104,7 @@ export function SearchExperience() {
     return {
       query,
       homeServer,
-      region,
+      region: regionForDataCenter(dataCenter) || '',
       dataCenter,
       categories: selectedCategories,
       jobFilter,
@@ -160,7 +142,6 @@ export function SearchExperience() {
     minYield,
     priceOverridesText,
     query,
-    region,
     revenueMode,
     selectedCategories,
     sortDir,
@@ -172,39 +153,35 @@ export function SearchExperience() {
     timedNodeOnly
   ]);
 
-  const applyParameters = useCallback(
-    (parameters: SearchParameters) => {
-      setQuery(parameters.query);
-      setHomeServer(parameters.homeServer);
-      setRegion(parameters.region);
-      setDataCenter(parameters.dataCenter);
-      setSelectedCategories(parameters.categories);
-      setJobFilter(parameters.jobFilter);
-      setMinSales(parameters.minSales);
-      setMinPrice(parameters.minPrice);
-      setMinProfit(parameters.minProfit);
-      setMinYield(parameters.minYield);
-      setStarLimit(parameters.starLimit);
-      setLevelRange(parameters.levelRange);
-      setExpertOnly(parameters.expertOnly);
-      setOnlyOmnicrafterFriendly(parameters.onlyOmnicrafterFriendly);
-      setTimedNodeOnly(parameters.timedNodeOnly);
-      setMaxComplexity(parameters.maxComplexity);
-      setCostMode(parameters.costMode);
-      setRevenueMode(parameters.revenueMode);
-      setBlendedListingWeight(parameters.blendedListingWeight);
-      setIncludeVendorPrices(parameters.includeVendorPrices);
-      setPriceOverridesText(
-        Object.entries(parameters.priceOverrides || {})
-          .map(([id, price]) => `${id}=${price}`)
-          .join(', ')
-      );
-      setMaxTimeToSell(parameters.maxTimeToSell);
-      setSortKey(parameters.sortKey);
-      setSortDir(parameters.sortDir);
-    },
-    []
-  );
+  const applyParameters = useCallback((parameters: SearchParameters) => {
+    setQuery(parameters.query);
+    setHomeServer(parameters.homeServer);
+    setDataCenter(parameters.dataCenter);
+    setSelectedCategories(parameters.categories);
+    setJobFilter(parameters.jobFilter);
+    setMinSales(parameters.minSales);
+    setMinPrice(parameters.minPrice);
+    setMinProfit(parameters.minProfit);
+    setMinYield(parameters.minYield);
+    setStarLimit(parameters.starLimit);
+    setLevelRange(parameters.levelRange);
+    setExpertOnly(parameters.expertOnly);
+    setOnlyOmnicrafterFriendly(parameters.onlyOmnicrafterFriendly);
+    setTimedNodeOnly(parameters.timedNodeOnly);
+    setMaxComplexity(parameters.maxComplexity);
+    setCostMode(parameters.costMode);
+    setRevenueMode(parameters.revenueMode);
+    setBlendedListingWeight(parameters.blendedListingWeight);
+    setIncludeVendorPrices(parameters.includeVendorPrices);
+    setPriceOverridesText(
+      Object.entries(parameters.priceOverrides || {})
+        .map(([id, price]) => `${id}=${price}`)
+        .join(', ')
+    );
+    setMaxTimeToSell(parameters.maxTimeToSell);
+    setSortKey(parameters.sortKey);
+    setSortDir(parameters.sortDir);
+  }, []);
 
   const toggleSort = (key: SearchParameters['sortKey']) => {
     if (sortKey === key) {
@@ -284,7 +261,6 @@ export function SearchExperience() {
   }, [
     query,
     homeServer,
-    region,
     dataCenter,
     selectedCategories,
     jobFilter,
@@ -382,28 +358,6 @@ export function SearchExperience() {
             <input placeholder="Item name, ingredient, etc." value={query} onChange={(e) => setQuery(e.target.value)} />
           </label>
           <label>
-            Home server
-            <select value={homeServer} onChange={(e) => setHomeServer(e.target.value)}>
-              <option value="">Any</option>
-              {availableWorlds.map((world) => (
-                <option key={world} value={world}>
-                  {world}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Region/DC
-            <select value={region} onChange={(e) => setRegion(e.target.value)}>
-              <option value="">Any</option>
-              {regions.map((regionOption) => (
-                <option key={regionOption} value={regionOption}>
-                  {regionOption}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
             Data center
             <select
               value={dataCenter}
@@ -413,6 +367,21 @@ export function SearchExperience() {
               {availableDataCenters.map((dc) => (
                 <option key={dc.name} value={dc.name}>
                   {dc.name} ({dc.region})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Home server
+            <select
+              value={homeServer}
+              onChange={(e) => setHomeServer(e.target.value)}
+              disabled={!dataCenter}
+            >
+              <option value="">{dataCenter ? 'Any' : 'Select a data center first'}</option>
+              {availableWorlds.map((world) => (
+                <option key={world} value={world}>
+                  {world}
                 </option>
               ))}
             </select>

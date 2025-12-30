@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { captureMarketSnapshot, MarketSnapshotData } from '@/lib/marketData';
 import { defaultSearchParameters, runSearch, SearchParameters } from '@/lib/search';
+import { regionForDataCenter } from '@/lib/servers';
+
+const memorySnapshot: { id: string; data: MarketSnapshotData } = {
+  id: 'in-memory',
+  data: {
+    items: [],
+    capturedAt: new Date(0).toISOString(),
+    cacheMs: 12 * 60 * 1000,
+    source: 'fallback'
+  }
+};
 
 const memorySnapshot: { id: string; data: MarketSnapshotData } = {
   id: 'in-memory',
@@ -56,12 +67,14 @@ export async function POST(request: NextRequest) {
     ...(body.parameters as Partial<SearchParameters>)
   };
 
+  const derivedRegion = parameters.region ?? regionForDataCenter(parameters.dataCenter) ?? 'Elemental';
+
   const snapshot = await ensureSnapshot(
     body.snapshotId as string | undefined,
     body.forceRefresh,
     parameters.priceOverrides,
     parameters.homeServer || 'Ravana',
-    parameters.region || 'Elemental'
+    derivedRegion
   );
   const { results, availableCategories } = runSearch(snapshot.data as any, parameters);
 
