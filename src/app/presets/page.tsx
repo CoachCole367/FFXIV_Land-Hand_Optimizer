@@ -26,10 +26,27 @@ export default function PresetsPage() {
 
   async function loadPresets() {
     setIsLoading(true);
-    const res = await fetch('/api/presets');
-    const data = await res.json();
-    setPresets(data.presets ?? []);
-    setIsLoading(false);
+    try {
+      const res = await fetch('/api/presets');
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || 'Failed to load presets');
+      }
+
+      const data = await res.json();
+      const normalized = (data.presets as any[] | undefined)?.map((preset) => ({
+        ...preset,
+        tags: Array.isArray(preset.tags) ? (preset.tags as unknown[]).map((tag) => String(tag)) : []
+      }));
+      setPresets(normalized ?? []);
+      setMessage(null);
+    } catch (error) {
+      console.error('Failed to load presets', error);
+      setMessage('Could not load presets. Please try again or check the server logs.');
+      setPresets([]);
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   useEffect(() => {
